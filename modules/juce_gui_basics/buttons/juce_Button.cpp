@@ -518,8 +518,10 @@ bool Button::isMouseSourceOver (const MouseEvent& e)
     return isMouseOver();
 }
 
-void Button::focusGained (FocusChangeType)
+void Button::focusGained (FocusChangeType cause)
 {
+	// Acon Digital modification - keep track of focus change cause
+    lastFocusChangeCause = cause;
     updateState();
     repaint();
 }
@@ -671,6 +673,12 @@ bool Button::keyPressed (const KeyPress& key)
     }
 
     return false;
+}
+
+// Acon Digital modification - keep track of focus change cause
+Component::FocusChangeType Button::getLastFocusChangeCause()
+{
+    return lastFocusChangeCause;
 }
 
 //==============================================================================

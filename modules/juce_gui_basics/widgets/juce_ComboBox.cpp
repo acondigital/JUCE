@@ -557,7 +557,19 @@ void ComboBox::showPopup()
                         ModalCallbackFunction::forComponent (comboBoxPopupMenuFinishedCallback, this));
 }
 
-//==============================================================================
+/** Acon Digital modification - allow for visual mouse over indications */
+void ComboBox::mouseEnter (const MouseEvent& e)
+{
+    Component::mouseEnter (e);
+    repaint();
+}
+
+void ComboBox::mouseExit (const MouseEvent& e)
+{
+    Component::mouseExit (e);
+    repaint();
+}
+
 void ComboBox::mouseDown (const MouseEvent& e)
 {
     beginDragAutoRepeat (300);
