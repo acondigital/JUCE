@@ -2727,6 +2727,35 @@ void AAX_CALLBACK AAXClasses::algorithmProcessCallback (JUCEAlgorithmContext* co
     AAXClasses::JuceAAX_Processor::algorithmCallback (instancesBegin, instancesEnd);
 }
 
+static bool HostDeclaresARASupport(AAX_ICollection* inCollection)
+{
+	bool result = false;
+	const AAX_IDescriptionHost* const hostDesc = inCollection->DescriptionHost();
+	if (hostDesc)
+	{
+		std::unique_ptr<const AAX_IFeatureInfo> featureInfo(hostDesc->AcquireFeatureProperties(AAXATTR_ClientFeature_ARA));
+		if (featureInfo)
+		{
+			AAX_ESupportLevel featureSupportLevel = AAX_eSupportLevel_Uninitialized;
+			const AAX_Result err = featureInfo->SupportLevel(featureSupportLevel);
+			AAX_TRACE_RELEASE(kAAX_Trace_Priority_Normal, "ARA initialization: host support for ARA: %s, err: %ld",
+			                    AAX::AsStringSupportLevel(featureSupportLevel).c_str(), (long int)err);
+			result = (err == AAX_SUCCESS) && (featureSupportLevel == AAX_eSupportLevel_Supported);
+		}
+		else
+		{
+			AAX_TRACE_RELEASE(kAAX_Trace_Priority_Normal, "ARA initialization: Unable to query AAXATTR_ClientFeature_ARA");
+			result = false;
+		}
+	}
+	else
+	{
+		AAX_TRACE_RELEASE(kAAX_Trace_Priority_High, "ARA initialization: AAX_IDescriptionHost is null");
+		result = false;
+	}
+	return result;
+}
+
 //==============================================================================
 AAX_Result JUCE_CDECL GetEffectDescriptions (AAX_ICollection*);
 AAX_Result JUCE_CDECL GetEffectDescriptions (AAX_ICollection* collection)
@@ -2740,6 +2769,11 @@ AAX_Result JUCE_CDECL GetEffectDescriptions (AAX_ICollection* collection)
 
     if (auto* descriptor = collection->NewDescriptor())
     {
+       #if JucePlugin_Enable_ARA
+        if (!HostDeclaresARASupport(collection))
+	        return AAX_SUCCESS;
+       #endif
+
         AAXClasses::getPlugInDescription (*descriptor, stemFormatFeatureInfo.get());
         collection->AddEffect (JUCE_STRINGIFY (JucePlugin_AAXIdentifier), descriptor);
 
