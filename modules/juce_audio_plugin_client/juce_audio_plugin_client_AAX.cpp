@@ -2550,7 +2550,7 @@ namespace AAXClasses
 
         properties->AddProperty (AAX_eProperty_PlugInID_Native, pluginID);
 
-       #if ! JucePlugin_AAXDisableAudioSuite
+       #if ! (JucePlugin_AAXDisableAudioSuite || JucePlugin_Enable_ARA)
         properties->AddProperty (AAX_eProperty_PlugInID_AudioSuite,
                                  extensions.getPluginIDForMainBusConfig (fullLayout.getMainInputChannelSet(),
                                                                          fullLayout.getMainOutputChannelSet(),
@@ -2613,6 +2613,7 @@ namespace AAXClasses
         }
 
        #if JucePlugin_Enable_ARA
+        properties->AddProperty (AAX_eProperty_ShowInMenus, false);
 	    properties->AddProperty (AAX_eProperty_UsesTransport, true);
         properties->AddProperty (AAX_eProperty_Constraint_Topology, AAX_eConstraintTopology_Monolithic);
         properties->AddPointerProperty (ARA::AAX_eProperty_ARAFactoryPointer, createARAFactory());
