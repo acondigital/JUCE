@@ -428,6 +428,8 @@ private:
         const char* getVersion() const noexcept override           { return JucePlugin_VersionString; }
         const char* getDocumentArchiveID() const noexcept override { return JucePlugin_ARADocumentArchiveID; }
 
+        ARA::ARAAPIGeneration getHighestSupportedApiGeneration() const noexcept override { return ARA::kARAAPIGeneration_2_3_Final; }
+
         ARA::ARASize getCompatibleDocumentArchiveIDsCount() const noexcept override
         {
             return compatibleDocumentArchiveIDs.size();
