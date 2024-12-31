@@ -728,6 +728,8 @@ private:
     CriticalSection activeCollectorLock;
     ReferenceCountedArray<MidiInCollector> activeCollectors;
     Array<MidiOutHandle*> activeOutputHandles;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Win32MidiService)
 };
 
 Array<Win32MidiService::MidiInCollector*, CriticalSection> Win32MidiService::MidiInCollector::activeMidiCollectors;
@@ -1029,7 +1031,7 @@ private:
                                      EventRegistrationToken& added,
                                      EventRegistrationToken& removed,
                                      EventRegistrationToken& updated)
-                    : Thread ("WinRT Device Enumeration Thread"), handler (h), watcher (w),
+                    : Thread (SystemStats::getJUCEVersion() + ": WinRT Device Enumeration Thread"), handler (h), watcher (w),
                       deviceAddedToken (added), deviceRemovedToken (removed), deviceUpdatedToken (updated)
             {}
 
@@ -1235,7 +1237,7 @@ private:
         //==============================================================================
         struct Listener
         {
-            virtual ~Listener() {};
+            virtual ~Listener() = default;
             virtual void bleDeviceAdded (const String& containerID) = 0;
             virtual void bleDeviceDisconnected (const String& containerID) = 0;
         };
@@ -1251,7 +1253,7 @@ private:
         }
 
         //==============================================================================
-        ListenerList<Listener> listeners;
+        ThreadSafeListenerList<Listener> listeners;
         HashMap<String, DeviceInfo> devices;
         CriticalSection deviceChanges;
 
@@ -1844,15 +1846,13 @@ private:
 
 //==============================================================================
 //==============================================================================
-#if ! JUCE_MINGW
- extern RTL_OSVERSIONINFOW getWindowsVersionInfo();
-#endif
+RTL_OSVERSIONINFOW getWindowsVersionInfo();
 
 struct MidiService final : public DeletedAtShutdown
 {
     MidiService()
     {
-      #if JUCE_USE_WINRT_MIDI && ! JUCE_MINGW
+      #if JUCE_USE_WINRT_MIDI
        #if ! JUCE_FORCE_WINRT_MIDI
         auto windowsVersionInfo = getWindowsVersionInfo();
         if (windowsVersionInfo.dwMajorVersion >= 10 && windowsVersionInfo.dwBuildNumber >= 17763)
@@ -1881,7 +1881,7 @@ struct MidiService final : public DeletedAtShutdown
         return *getInstance()->internal.get();
     }
 
-    JUCE_DECLARE_SINGLETON (MidiService, false)
+    JUCE_DECLARE_SINGLETON_INLINE (MidiService, false)
 
 private:
     std::unique_ptr<MidiServiceType> internal;
@@ -1890,8 +1890,6 @@ private:
         MidiDeviceListConnectionBroadcaster::get().notify();
     } };
 };
-
-JUCE_IMPLEMENT_SINGLETON (MidiService)
 
 //==============================================================================
 static int findDefaultDeviceIndex (const Array<MidiDeviceInfo>& available, const MidiDeviceInfo& defaultDevice)

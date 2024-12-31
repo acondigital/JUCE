@@ -63,7 +63,7 @@ public:
         clearSingletonInstance();
     }
 
-    JUCE_DECLARE_SINGLETON (TypefaceCache, false)
+    JUCE_DECLARE_SINGLETON_INLINE (TypefaceCache, false)
 
     void setSize (const int numToCache)
     {
@@ -170,8 +170,6 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TypefaceCache)
 };
 
-JUCE_IMPLEMENT_SINGLETON (TypefaceCache)
-
 void Typeface::setTypefaceCacheSize (int numFontsToCache)
 {
     TypefaceCache::getInstance()->setSize (numFontsToCache);
@@ -274,6 +272,9 @@ public:
     {
         jassert (getReferenceCount() == 1);
         typeface = newTypeface;
+
+        if (typeface != nullptr)
+            options = options.withTypeface (nullptr).withName ("").withStyle ("");
 
         options = options.withTypeface (typeface);
     }
@@ -753,28 +754,22 @@ float Font::getDescentInPoints() const      { return getDescent() * getHeightToP
 
 int Font::getStringWidth (const String& text) const
 {
+    JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4996)
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
     return (int) std::ceil (getStringWidthFloat (text));
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+    JUCE_END_IGNORE_WARNINGS_MSVC
 }
 
 float Font::getStringWidthFloat (const String& text) const
 {
-    const auto w = getTypefacePtr()->getStringWidth (getMetricsKind(), text, getHeight(), getHorizontalScale());
-    return w + (getHeight() * getHorizontalScale() * getExtraKerningFactor() * (float) text.length());
-}
-
-void Font::getGlyphPositions (const String& text, Array<int>& glyphs, Array<float>& xOffsets) const
-{
-    getTypefacePtr()->getGlyphPositions (getMetricsKind(), text, glyphs, xOffsets, getHeight(), getHorizontalScale());
-
-    if (auto num = xOffsets.size())
+    if (auto typeface = getTypefacePtr())
     {
-        auto scale = getHeight() * getHorizontalScale();
-        auto* x = xOffsets.getRawDataPointer();
-
-        if (! approximatelyEqual (getExtraKerningFactor(), 0.0f))
-            for (int i = 0; i < num; ++i)
-                x[i] += ((float) i * getExtraKerningFactor() * scale);
+        const auto w = typeface->getStringWidth (getMetricsKind(), text, getHeight(), getHorizontalScale());
+        return w + (getHeight() * getHorizontalScale() * getExtraKerningFactor() * (float) text.length());
     }
+
+    return 0;
 }
 
 void Font::findFonts (Array<Font>& destArray)

@@ -37,18 +37,6 @@
  #undef JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS
 #endif
 
-#if defined (__IPHONE_13_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_13_0
- #define JUCE_HAS_IOS_POINTER_SUPPORT 1
-#else
- #define JUCE_HAS_IOS_POINTER_SUPPORT 0
-#endif
-
-#if defined (__IPHONE_13_4) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_13_4
- #define JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT 1
-#else
- #define JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT 0
-#endif
-
 namespace juce
 {
 
@@ -120,14 +108,12 @@ static UIInterfaceOrientation getWindowOrientation()
 {
     UIApplication* sharedApplication = [UIApplication sharedApplication];
 
-   #if defined (__IPHONE_13_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_13_0
     if (@available (iOS 13.0, *))
     {
         for (UIScene* scene in [sharedApplication connectedScenes])
             if ([scene isKindOfClass: [UIWindowScene class]])
                 return [(UIWindowScene*) scene interfaceOrientation];
     }
-   #endif
 
     JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
     return [sharedApplication statusBarOrientation];
@@ -321,34 +307,6 @@ struct CADisplayLinkDeleter
     std::unique_ptr<CADisplayLink, CADisplayLinkDeleter> displayLink;
 }
 
-- (JuceUIView*) initWithOwner: (UIViewComponentPeer*) owner withFrame: (CGRect) frame;
-- (void) dealloc;
-
-+ (Class) layerClass;
-
-- (void) displayLinkCallback: (CADisplayLink*) dl;
-
-- (void) drawRect: (CGRect) r;
-
-- (void) touchesBegan:     (NSSet*) touches  withEvent: (UIEvent*) event;
-- (void) touchesMoved:     (NSSet*) touches  withEvent: (UIEvent*) event;
-- (void) touchesEnded:     (NSSet*) touches  withEvent: (UIEvent*) event;
-- (void) touchesCancelled: (NSSet*) touches  withEvent: (UIEvent*) event;
-
-#if JUCE_HAS_IOS_POINTER_SUPPORT
-- (void) onHover: (UIHoverGestureRecognizer*) gesture API_AVAILABLE (ios (13.0));
-- (void) onScroll: (UIPanGestureRecognizer*) gesture;
-#endif
-
-- (BOOL) becomeFirstResponder;
-- (BOOL) resignFirstResponder;
-- (BOOL) canBecomeFirstResponder;
-
-- (void) traitCollectionDidChange: (UITraitCollection*) previousTraitCollection;
-
-- (BOOL) isAccessibilityElement;
-- (CGRect) accessibilityFrame;
-- (NSArray*) accessibilityElements;
 @end
 
 //==============================================================================
@@ -424,6 +382,7 @@ public:
     void setAlpha (float newAlpha) override;
     void setMinimised (bool) override                         {}
     bool isMinimised() const override                         { return false; }
+    bool isShowing() const override                           { return true; }
     void setFullScreen (bool shouldBeFullScreen) override;
     bool isFullScreen() const override                        { return fullScreen; }
     bool contains (Point<int> localPos, bool trueIfInAChildWindow) const override;
@@ -435,7 +394,7 @@ public:
     void setIcon (const Image& newIcon) override;
     StringArray getAvailableRenderingEngines() override       { return StringArray ("CoreGraphics Renderer"); }
 
-    void displayLinkCallback();
+    void displayLinkCallback (double timestampSec);
 
     void drawRect (CGRect);
     void drawRectWithContext (CGContextRef, CGRect);
@@ -454,10 +413,8 @@ public:
 
     void handleTouches (UIEvent*, MouseEventFlags);
 
-   #if JUCE_HAS_IOS_POINTER_SUPPORT
     API_AVAILABLE (ios (13.0)) void onHover (UIHoverGestureRecognizer*);
     void onScroll (UIPanGestureRecognizer*);
-   #endif
 
     Range<int> getMarkedTextRange() const
     {
@@ -661,7 +618,6 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
 
 - (UIStatusBarStyle) preferredStatusBarStyle
 {
-   #if defined (__IPHONE_13_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_13_0
     if (@available (iOS 13.0, *))
     {
         if (auto* peer = getViewPeer (self))
@@ -677,7 +633,6 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
             }
         }
     }
-   #endif
 
     return UIStatusBarStyleDefault;
 }
@@ -747,7 +702,6 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
 
     [self addSubview: owner->hiddenTextInput.get()];
 
-   #if JUCE_HAS_IOS_POINTER_SUPPORT
     if (@available (iOS 13.4, *))
     {
         auto hoverRecognizer = [[[UIHoverGestureRecognizer alloc] initWithTarget: self action: @selector (onHover:)] autorelease];
@@ -762,7 +716,6 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
         [panRecognizer setMaximumNumberOfTouches: 0];
         [self addGestureRecognizer: panRecognizer];
     }
-   #endif
 
     return self;
 }
@@ -789,7 +742,7 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
 - (void) displayLinkCallback: (CADisplayLink*) dl
 {
     if (owner != nullptr)
-        owner->displayLinkCallback();
+        owner->displayLinkCallback (dl.targetTimestamp);
 }
 
 #if JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS
@@ -867,8 +820,7 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
     [self touchesEnded: touches withEvent: event];
 }
 
-#if JUCE_HAS_IOS_POINTER_SUPPORT
-- (void) onHover: (UIHoverGestureRecognizer*) gesture
+- (void) onHover: (UIHoverGestureRecognizer*) gesture API_AVAILABLE (ios (13))
 {
     if (owner != nullptr)
         owner->onHover (gesture);
@@ -879,7 +831,6 @@ MultiTouchMapper<UITouch*> UIViewComponentPeer::currentTouches;
     if (owner != nullptr)
         owner->onScroll (gesture);
 }
-#endif
 
 static std::optional<int> getKeyCodeForSpecialCharacterString (StringRef characters)
 {
@@ -892,14 +843,10 @@ static std::optional<int> getKeyCodeForSpecialCharacterString (StringRef charact
             { nsStringToJuce (UIKeyInputLeftArrow),     KeyPress::leftKey },
             { nsStringToJuce (UIKeyInputRightArrow),    KeyPress::rightKey },
             { nsStringToJuce (UIKeyInputEscape),        KeyPress::escapeKey },
-           #if JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT
-            // These symbols are available on iOS 8, but only declared in the headers for iOS 13.4+
             { nsStringToJuce (UIKeyInputPageUp),        KeyPress::pageUpKey },
             { nsStringToJuce (UIKeyInputPageDown),      KeyPress::pageDownKey },
-           #endif
         };
 
-       #if JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT
         if (@available (iOS 13.4, *))
         {
             result.insert ({ { nsStringToJuce (UIKeyInputHome),          KeyPress::homeKey },
@@ -917,9 +864,8 @@ static std::optional<int> getKeyCodeForSpecialCharacterString (StringRef charact
                              { nsStringToJuce (UIKeyInputF11),           KeyPress::F11Key },
                              { nsStringToJuce (UIKeyInputF12),           KeyPress::F12Key } });
         }
-       #endif
 
-       #if defined (__IPHONE_15_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_15_0
+       #if JUCE_IOS_API_VERSION_CAN_BE_BUILT (15, 0)
         if (@available (iOS 15.0, *))
         {
             result.insert ({ { nsStringToJuce (UIKeyInputDelete),        KeyPress::deleteKey } });
@@ -943,7 +889,6 @@ static int getKeyCodeForCharacters (NSString* characters)
     return getKeyCodeForCharacters (nsStringToJuce (characters));
 }
 
-#if JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT
 static void updateModifiers (const UIKeyModifierFlags flags)
 {
     const auto convert = [&flags] (UIKeyModifierFlags f, int result) { return (flags & f) != 0 ? result : 0; };
@@ -1051,7 +996,6 @@ static bool doKeysUp (UIViewComponentPeer* owner, NSSet<UIPress*>* presses, UIPr
     if (! doKeysUp (owner, presses, event))
         [super pressesCancelled: presses withEvent: event];
 }
-#endif
 
 //==============================================================================
 - (BOOL) becomeFirstResponder
@@ -1075,19 +1019,26 @@ static bool doKeysUp (UIViewComponentPeer* owner, NSSet<UIPress*>* presses, UIPr
     return owner != nullptr && owner->canBecomeKeyWindow();
 }
 
+static void postTraitChangeNotification (UITraitCollection* previousTraitCollection)
+{
+    const auto wasDarkModeActive = ([previousTraitCollection userInterfaceStyle] == UIUserInterfaceStyleDark);
+
+    if (wasDarkModeActive != Desktop::getInstance().isDarkModeActive())
+        [[NSNotificationCenter defaultCenter] postNotificationName: UIViewComponentPeer::getDarkModeNotificationName()
+                                                            object: nil];
+}
+
+#if ! JUCE_IOS_API_VERSION_MIN_REQUIRED_AT_LEAST (17, 0)
 - (void) traitCollectionDidChange: (UITraitCollection*) previousTraitCollection
 {
     [super traitCollectionDidChange: previousTraitCollection];
 
-    if (@available (iOS 12.0, *))
-    {
-        const auto wasDarkModeActive = ([previousTraitCollection userInterfaceStyle] == UIUserInterfaceStyleDark);
-
-        if (wasDarkModeActive != Desktop::getInstance().isDarkModeActive())
-            [[NSNotificationCenter defaultCenter] postNotificationName: UIViewComponentPeer::getDarkModeNotificationName()
-                                                                object: nil];
-    }
+    if (@available (ios 17, *))
+        {} // do nothing
+    else
+        postTraitChangeNotification (previousTraitCollection);
 }
+#endif
 
 - (BOOL) isAccessibilityElement
 {
@@ -1159,12 +1110,7 @@ static bool doKeysUp (UIViewComponentPeer* owner, NSSet<UIPress*>* presses, UIPr
     if (auto* target = [self getTextInputTarget])
     {
         if (action == @selector (paste:))
-        {
-            if (@available (iOS 10, *))
-                return [[UIPasteboard generalPasteboard] hasStrings];
-
-            return [[UIPasteboard generalPasteboard] string] != nil;
-        }
+            return [[UIPasteboard generalPasteboard] hasStrings];
     }
 
     return [super canPerformAction: action withSender: sender];
@@ -1728,16 +1674,29 @@ namespace juce
 
 bool KeyPress::isKeyCurrentlyDown (int keyCode)
 {
-   #if JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT
     return iOSGlobals::keysCurrentlyDown.isDown (keyCode)
         || ('A' <= keyCode && keyCode <= 'Z' && iOSGlobals::keysCurrentlyDown.isDown ((int) CharacterFunctions::toLowerCase ((juce_wchar) keyCode)))
         || ('a' <= keyCode && keyCode <= 'z' && iOSGlobals::keysCurrentlyDown.isDown ((int) CharacterFunctions::toUpperCase ((juce_wchar) keyCode)));
-   #else
-    return false;
-   #endif
 }
 
 Point<float> juce_lastMousePos;
+
+struct ChangeRegistrationTrait
+{
+   #if JUCE_IOS_API_VERSION_CAN_BE_BUILT (17, 0)
+    API_AVAILABLE (ios (17))
+    static void newFn (UIView* view)
+    {
+        [view registerForTraitChanges: @[UITraitUserInterfaceStyle.self]
+                          withHandler: ^(JuceUIView*, UITraitCollection* previousTraitCollection)
+        {
+            postTraitChangeNotification (previousTraitCollection);
+        }];
+    }
+   #endif
+
+    static void oldFn (UIView*) {}
+};
 
 //==============================================================================
 UIViewComponentPeer::UIViewComponentPeer (Component& comp, int windowStyleFlags, UIView* viewToAttachTo)
@@ -1764,6 +1723,8 @@ UIViewComponentPeer::UIViewComponentPeer (Component& comp, int windowStyleFlags,
 
     if ((windowStyleFlags & ComponentPeer::windowRequiresSynchronousCoreGraphicsRendering) == 0)
         [[view layer] setDrawsAsynchronously: YES];
+
+    ifelse_17_0<ChangeRegistrationTrait> (view);
 
     if (isSharedWindow)
     {
@@ -1812,10 +1773,8 @@ UIViewComponentPeer::~UIViewComponentPeer()
     {
         [((JuceUIWindow*) window) setOwner: nil];
 
-      #if defined (__IPHONE_13_0)
         if (@available (iOS 13.0, *))
             window.windowScene = nil;
-      #endif
 
         [window release];
     }
@@ -2020,12 +1979,10 @@ void UIViewComponentPeer::handleTouches (UIEvent* event, MouseEventFlags mouseEv
     if (event == nullptr)
         return;
 
-   #if JUCE_HAS_IOS_HARDWARE_KEYBOARD_SUPPORT
     if (@available (iOS 13.4, *))
     {
         updateModifiers ([event modifierFlags]);
     }
-   #endif
 
     NSArray* touches = [[event touchesForView: view] allObjects];
 
@@ -2104,7 +2061,6 @@ void UIViewComponentPeer::handleTouches (UIEvent* event, MouseEventFlags mouseEv
     }
 }
 
-#if JUCE_HAS_IOS_POINTER_SUPPORT
 void UIViewComponentPeer::onHover (UIHoverGestureRecognizer* gesture)
 {
     auto pos = convertToPointFloat ([gesture locationInView: view]);
@@ -2137,7 +2093,6 @@ void UIViewComponentPeer::onScroll (UIPanGestureRecognizer* gesture)
                       UIViewComponentPeer::getMouseTime ([[NSProcessInfo processInfo] systemUptime]),
                       details);
 }
-#endif
 
 //==============================================================================
 void UIViewComponentPeer::viewFocusGain()
@@ -2208,9 +2163,9 @@ void UIViewComponentPeer::dismissPendingTextInput()
 }
 
 //==============================================================================
-void UIViewComponentPeer::displayLinkCallback()
+void UIViewComponentPeer::displayLinkCallback (double timestampSec)
 {
-    vBlankListeners.call ([] (auto& l) { l.onVBlank(); });
+    callVBlankListeners (timestampSec);
 
     if (deferredRepaints.isEmpty())
         return;
@@ -2267,7 +2222,7 @@ void Desktop::setKioskComponent (Component* kioskModeComp, bool enableOrDisable,
 
 void Desktop::allowedOrientationsChanged()
 {
-   #if defined (__IPHONE_16_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_16_0
+   #if JUCE_IOS_API_VERSION_CAN_BE_BUILT (16, 0)
     if (@available (iOS 16.0, *))
     {
         UIApplication* sharedApplication = [UIApplication sharedApplication];

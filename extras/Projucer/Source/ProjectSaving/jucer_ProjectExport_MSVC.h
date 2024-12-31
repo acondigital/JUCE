@@ -176,7 +176,6 @@ public:
               prebuildCommandValue           (config, Ids::prebuildCommand,            getUndoManager()),
               postbuildCommandValue          (config, Ids::postbuildCommand,           getUndoManager()),
               generateDebugSymbolsValue      (config, Ids::alwaysGenerateDebugSymbols, getUndoManager(), false),
-              generateManifestValue          (config, Ids::generateManifest,           getUndoManager(), true),
               enableIncrementalLinkingValue  (config, Ids::enableIncrementalLinking,   getUndoManager(), false),
               useRuntimeLibDLLValue          (config, Ids::useRuntimeLibDLL,           getUndoManager(), true),
               multiProcessorCompilationValue (config, Ids::multiProcessorCompilation,  getUndoManager(), true),
@@ -220,7 +219,6 @@ public:
         String getDebugInformationFormatString() const    { return debugInformationFormatValue.get(); }
 
         bool shouldGenerateDebugSymbols() const           { return generateDebugSymbolsValue.get(); }
-        bool shouldGenerateManifest() const               { return generateManifestValue.get(); }
         bool shouldLinkIncremental() const                { return enableIncrementalLinkingValue.get(); }
         bool isUsingRuntimeLibDLL() const                 { return useRuntimeLibDLLValue.get(); }
         bool shouldUseMultiProcessorCompilation() const   { return multiProcessorCompilationValue.get(); }
@@ -323,9 +321,6 @@ public:
             props.add (new TextPropertyComponent (postbuildCommandValue, "Post-build Command", 2048, true),
                        "Some command that will be run after a build starts.");
 
-            props.add (new ChoicePropertyComponent (generateManifestValue, "Generate Manifest"),
-                       "Enable this to generate a Manifest file.");
-
             props.add (new ChoicePropertyComponent (characterSetValue, "Character Set",
                                                     { "MultiByte", "Unicode" },
                                                     { "MultiByte", "Unicode" }),
@@ -351,7 +346,7 @@ public:
 
     private:
         ValueTreePropertyWithDefault warningLevelValue, warningsAreErrorsValue, prebuildCommandValue, postbuildCommandValue, generateDebugSymbolsValue,
-                                     generateManifestValue, enableIncrementalLinkingValue, useRuntimeLibDLLValue, multiProcessorCompilationValue,
+                                     enableIncrementalLinkingValue, useRuntimeLibDLLValue, multiProcessorCompilationValue,
                                      intermediatesPathValue, characterSetValue, architectureTypeValue, fastMathValue, debugInformationFormatValue,
                                      pluginBinaryCopyStepValue;
 
@@ -570,7 +565,7 @@ public:
                     {
                         auto* manifest = props->createNewChildElement ("GenerateManifest");
                         setConditionAttribute (*manifest, config);
-                        manifest->addTextElement (config.shouldGenerateManifest() ? "true" : "false");
+                        manifest->addTextElement ("true");
                     }
 
                     if (type != SharedCodeTarget)
@@ -754,16 +749,6 @@ public:
                         additional->addTextElement (manifestFile.rebased (getOwner().getProject().getFile().getParentDirectory(),
                                                                           getOwner().getTargetFolder(),
                                                                           build_tools::RelativePath::buildTargetFolder).toWindowsStyle());
-                    }
-
-                    if (type == VST3Helper)
-                    {
-                        const auto manifest = getOwner().getModuleFolderRelativeToProject ("juce_audio_processors").getChildFile ("format_types")
-                                                                                                                   .getChildFile ("VST3_SDK")
-                                                                                                                   .getChildFile ("helper.manifest");
-                        additional->addTextElement (manifest.rebased (getOwner().getProject().getFile().getParentDirectory(),
-                                                                      getOwner().getTargetFolder(),
-                                                                      build_tools::RelativePath::buildTargetFolder).toWindowsStyle());
                     }
                 }
 
@@ -1543,7 +1528,6 @@ public:
 
     bool isXcode() const override                            { return false; }
     bool isVisualStudio() const override                     { return true; }
-    bool isCodeBlocks() const override                       { return false; }
     bool isMakefile() const override                         { return false; }
     bool isAndroidStudio() const override                    { return false; }
 
@@ -1601,6 +1585,12 @@ public:
     bool launchProject() override
     {
        #if JUCE_WINDOWS
+        // Don't launch if already open
+        const auto foundDBFiles = getSLNFile().getSiblingFile (".vs").findChildFiles (File::findFiles, true, "*.opendb", File::FollowSymlinks::no);
+
+        if (! foundDBFiles.isEmpty())
+            return false;
+
         return getSLNFile().startAsProcess();
        #else
         return false;
@@ -1949,51 +1939,6 @@ protected:
     }
 
     JUCE_DECLARE_NON_COPYABLE (MSVCProjectExporterBase)
-};
-
-//==============================================================================
-class MSVCProjectExporterVC2017 final : public MSVCProjectExporterBase
-{
-public:
-    MSVCProjectExporterVC2017 (Project& p, const ValueTree& t)
-        : MSVCProjectExporterBase (p, t, getTargetFolderName())
-    {
-        name = getDisplayName();
-
-        targetPlatformVersion.setDefault (defaultTargetPlatform);
-        platformToolsetValue.setDefault (defaultToolset);
-    }
-
-    static String getDisplayName()        { return "Visual Studio 2017"; }
-    static String getValueTreeTypeName()  { return "VS2017"; }
-    static String getTargetFolderName()   { return "VisualStudio2017"; }
-
-    Identifier getExporterIdentifier() const override { return getValueTreeTypeName(); }
-
-    int getVisualStudioVersion() const override                      { return 15; }
-    String getSolutionComment() const override                       { return "# Visual Studio 15"; }
-    String getToolsVersion() const override                          { return "15.0"; }
-    String getDefaultToolset() const override                        { return defaultToolset; }
-    String getDefaultWindowsTargetPlatformVersion() const override   { return defaultTargetPlatform; }
-
-    static MSVCProjectExporterVC2017* createForSettings (Project& projectToUse, const ValueTree& settingsToUse)
-    {
-        if (settingsToUse.hasType (getValueTreeTypeName()))
-            return new MSVCProjectExporterVC2017 (projectToUse, settingsToUse);
-
-        return nullptr;
-    }
-
-    void createExporterProperties (PropertyListBuilder& props) override
-    {
-        addToolsetProperty (props, { "v140", "v140_xp", "v141", "v141_xp" });
-        MSVCProjectExporterBase::createExporterProperties (props);
-    }
-
-private:
-    const String defaultToolset { "v141" }, defaultTargetPlatform { "Latest" };
-
-    JUCE_DECLARE_NON_COPYABLE (MSVCProjectExporterVC2017)
 };
 
 //==============================================================================

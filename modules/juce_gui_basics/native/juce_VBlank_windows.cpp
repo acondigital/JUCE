@@ -44,7 +44,7 @@ public:
     VBlankThread (ComSmartPtr<IDXGIOutput> out,
                   HMONITOR mon,
                   VBlankListener& listener)
-        : Thread ("VBlankThread"),
+        : Thread (SystemStats::getJUCEVersion() + ": VBlankThread"),
           output (out),
           monitor (mon)
     {
@@ -121,6 +121,12 @@ private:
         {
             if (output->WaitForVBlank() == S_OK)
             {
+                if (const auto now = Time::getMillisecondCounterHiRes();
+                    now - lastVBlankEvent.exchange (now) < 1.0)
+                {
+                    Thread::sleep (1);
+                }
+
                 std::unique_lock lock { mutex };
                 condvar.wait (lock, [this] { return threadState != ThreadState::sleep; });
 
@@ -139,8 +145,10 @@ private:
 
     void handleAsyncUpdate() override
     {
+        const auto timestampSec = lastVBlankEvent / 1000.0;
+
         for (auto& listener : listeners)
-            listener.get().onVBlank();
+            listener.get().onVBlank (timestampSec);
 
         {
             const std::scoped_lock lock { mutex };
@@ -164,6 +172,7 @@ private:
         exit,
     };
 
+    std::atomic<double> lastVBlankEvent{};
     ThreadState threadState = ThreadState::paint;
     std::condition_variable condvar;
     std::mutex mutex;
@@ -258,7 +267,7 @@ public:
                        threads.end());
     }
 
-    JUCE_DECLARE_SINGLETON_SINGLETHREADED (VBlankDispatcher, false)
+    JUCE_DECLARE_SINGLETON_SINGLETHREADED_INLINE (VBlankDispatcher, false)
 
 private:
     //==============================================================================
@@ -296,7 +305,5 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VBlankDispatcher)
     JUCE_DECLARE_NON_MOVEABLE (VBlankDispatcher)
 };
-
-JUCE_IMPLEMENT_SINGLETON (VBlankDispatcher)
 
 } // namespace juce

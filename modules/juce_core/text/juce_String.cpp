@@ -2164,7 +2164,7 @@ String String::fromUTF8 (const char* const buffer, int bufferSizeBytes)
     }
 
     jassert (CharPointer_UTF8::isValidString (buffer, bufferSizeBytes));
-    return { CharPointer_UTF8 (buffer), (size_t) bufferSizeBytes };
+    return { CharPointer_UTF8 (buffer), CharPointer_UTF8 (buffer + bufferSizeBytes) };
 }
 
 #if __cpp_char8_t
@@ -2373,7 +2373,8 @@ public:
         {
             String s (createRandomWideCharString (r));
 
-            typename CharPointerType::CharType buffer [300];
+            using CharType = typename CharPointerType::CharType;
+            CharType buffer[300];
 
             memset (buffer, 0xff, sizeof (buffer));
             CharPointerType (buffer).writeAll (s.toUTF32());
@@ -2387,7 +2388,10 @@ public:
             CharPointerType (buffer).writeAll (s.toUTF8());
             test.expectEquals (String (CharPointerType (buffer)), s);
 
-            test.expect (CharPointerType::isValidString (buffer, (int) strlen ((const char*) buffer)));
+            const auto nullTerminator = std::find (buffer, buffer + std::size (buffer), (CharType) 0);
+            const auto numValidBytes = (int) std::distance (buffer, nullTerminator) * (int) sizeof (CharType);
+
+            test.expect (CharPointerType::isValidString (buffer, numValidBytes));
         }
     };
 

@@ -32,10 +32,6 @@
   ==============================================================================
 */
 
-#include FT_TRUETYPE_TABLES_H
-#include FT_GLYPH_H
-#include FT_COLOR_H
-
 namespace juce
 {
 
@@ -125,7 +121,7 @@ struct FTFaceWrapper final : public ReferenceCountedObject
     MemoryBlock savedFaceData;
     FT_Face face = {};
 
-    JUCE_HEAVYWEIGHT_LEAK_DETECTOR(FTFaceWrapper)
+    JUCE_LEAK_DETECTOR (FTFaceWrapper)
 };
 
 //==============================================================================
@@ -320,7 +316,7 @@ public:
             faces.erase (iter);
     }
 
-    JUCE_DECLARE_SINGLETON_SINGLETHREADED_MINIMAL (FTTypefaceList)
+    JUCE_DECLARE_SINGLETON_SINGLETHREADED_MINIMAL_INLINE (FTTypefaceList)
 
     FTLibWrapper::Ptr getLibrary() const { return library; }
 
@@ -376,8 +372,6 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FTTypefaceList)
 };
-
-JUCE_IMPLEMENT_SINGLETON (FTTypefaceList)
 
 //==============================================================================
 class FreeTypeTypeface final : public Typeface
@@ -485,7 +479,7 @@ public:
     ~FreeTypeTypeface() override
     {
         if (doCache == DoCache::yes)
-            if (auto* list = FTTypefaceList::getInstance())
+            if (auto* list = FTTypefaceList::getInstanceWithoutCreating())
                 list->removeMemoryFace (ftFace);
     }
 

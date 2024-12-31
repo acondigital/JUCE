@@ -61,18 +61,12 @@
 #if JUCE_WINDOWS
  #include <ctime>
 
- #if JUCE_MINGW
-  #include <ws2spi.h>
-  #include <cstdio>
-  #include <locale.h>
- #else
-  JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4091)
-  #include <Dbghelp.h>
-  JUCE_END_IGNORE_WARNINGS_MSVC
+ JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4091)
+ #include <Dbghelp.h>
+ JUCE_END_IGNORE_WARNINGS_MSVC
 
-  #if ! JUCE_DONT_AUTOLINK_TO_WIN32_LIBRARIES
-   #pragma comment (lib, "DbgHelp.lib")
-  #endif
+ #if ! JUCE_DONT_AUTOLINK_TO_WIN32_LIBRARIES
+  #pragma comment (lib, "DbgHelp.lib")
  #endif
 
 #else
@@ -134,7 +128,6 @@
 //==============================================================================
 #include "containers/juce_AbstractFifo.cpp"
 #include "containers/juce_ArrayBase.cpp"
-#include "containers/juce_ListenerList.cpp"
 #include "containers/juce_NamedValueSet.cpp"
 #include "containers/juce_OwnedArray.cpp"
 #include "containers/juce_PropertySet.cpp"
@@ -160,6 +153,14 @@
 #include "misc/juce_ConsoleApplication.cpp"
 #include "misc/juce_ScopeGuard.cpp"
 #include "network/juce_MACAddress.cpp"
+
+#if ! JUCE_WINDOWS
+ #include "native/juce_SharedCode_posix.h"
+ #include "native/juce_NamedPipe_posix.cpp"
+#else
+ #include "native/juce_Files_windows.cpp"
+#endif
+
 #include "network/juce_NamedPipe.cpp"
 #include "network/juce_Socket.cpp"
 #include "network/juce_IPAddress.cpp"
@@ -189,9 +190,8 @@
 #include "time/juce_Time.cpp"
 #include "unit_tests/juce_UnitTest.cpp"
 #include "containers/juce_Variant.cpp"
-#include "javascript/juce_JSON.cpp"
-#include "javascript/juce_JSONUtils.cpp"
-#include "javascript/juce_Javascript.cpp"
+#include "json/juce_JSON.cpp"
+#include "json/juce_JSONUtils.cpp"
 #include "containers/juce_DynamicObject.cpp"
 #include "xml/juce_XmlDocument.cpp"
 #include "xml/juce_XmlElement.cpp"
@@ -204,12 +204,8 @@
 #include "native/juce_PlatformTimerListener.h"
 
 //==============================================================================
-#if ! JUCE_WINDOWS
- #include "native/juce_SharedCode_posix.h"
- #include "native/juce_NamedPipe_posix.cpp"
- #if ! JUCE_ANDROID || __ANDROID_API__ >= 24
-  #include "native/juce_IPAddress_posix.h"
- #endif
+#if ! JUCE_WINDOWS && (! JUCE_ANDROID || __ANDROID_API__ >= 24)
+ #include "native/juce_IPAddress_posix.h"
 #endif
 
 //==============================================================================
@@ -225,11 +221,11 @@
 
 //==============================================================================
 #elif JUCE_WINDOWS
- #include "native/juce_Files_windows.cpp"
  #include "native/juce_Network_windows.cpp"
  #include "native/juce_Registry_windows.cpp"
  #include "native/juce_SystemStats_windows.cpp"
  #include "native/juce_Threads_windows.cpp"
+ #include "native/juce_PlatformTimer_generic.cpp"
  #include "native/juce_PlatformTimer_windows.cpp"
 
 //==============================================================================
@@ -293,11 +289,15 @@
  #include "containers/juce_HashMap_test.cpp"
  #include "containers/juce_Optional_test.cpp"
  #include "containers/juce_Enumerate_test.cpp"
+ #include "containers/juce_ListenerList_test.cpp"
  #include "maths/juce_MathsFunctions_test.cpp"
  #include "misc/juce_EnumHelpers_test.cpp"
  #include "containers/juce_FixedSizeFunction_test.cpp"
- #include "javascript/juce_JSONSerialisation_test.cpp"
+ #include "json/juce_JSONSerialisation_test.cpp"
  #include "memory/juce_SharedResourcePointer_test.cpp"
+ #include "text/juce_CharPointer_UTF8_test.cpp"
+ #include "text/juce_CharPointer_UTF16_test.cpp"
+ #include "text/juce_CharPointer_UTF32_test.cpp"
  #if JUCE_MAC || JUCE_IOS
   #include "native/juce_ObjCHelpers_mac_test.mm"
  #endif

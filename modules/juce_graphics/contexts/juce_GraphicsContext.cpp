@@ -85,27 +85,24 @@ namespace
                                   : configureArrangement (args);
         }
 
-        JUCE_DECLARE_SINGLETON (GlyphArrangementCache<ArrangementArgs>, false)
+        JUCE_DECLARE_SINGLETON_INLINE (GlyphArrangementCache<ArrangementArgs>, false)
 
     private:
         LruCache<ArrangementArgs, ConfiguredArrangement> cache;
         CriticalSection lock;
     };
 
-    template <typename ArrangementArgs>
-    juce::SingletonHolder<GlyphArrangementCache<ArrangementArgs>, juce::CriticalSection, false> GlyphArrangementCache<ArrangementArgs>::singletonHolder;
-
     //==============================================================================
     template <typename Type>
     Rectangle<Type> coordsToRectangle (Type x, Type y, Type w, Type h) noexcept
     {
        #if JUCE_DEBUG
-        const int maxVal = 0x3fffffff;
+        constexpr int maxVal = 0x3fffffff;
 
-        jassert ((int) x >= -maxVal && (int) x <= maxVal
-              && (int) y >= -maxVal && (int) y <= maxVal
-              && (int) w >= 0 && (int) w <= maxVal
-              && (int) h >= 0 && (int) h <= maxVal);
+        jassertquiet ((int) x >= -maxVal && (int) x <= maxVal
+                   && (int) y >= -maxVal && (int) y <= maxVal
+                   && (int) w >= 0 && (int) w <= maxVal
+                   && (int) h >= 0 && (int) h <= maxVal);
        #endif
 
         return { x, y, w, h };
