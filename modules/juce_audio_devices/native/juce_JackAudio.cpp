@@ -42,11 +42,15 @@ static void* juce_loadJackFunction (const char* const name)
     if (juce_libjackHandle == nullptr)
         return nullptr;
 
+   #if JUCE_WINDOWS
+    return GetProcAddress ((HMODULE) juce_libjackHandle, name);
+   #else
     return dlsym (juce_libjackHandle, name);
+   #endif
 }
 
 #define JUCE_DECL_JACK_FUNCTION(return_type, fn_name, argument_types, arguments)  \
-  return_type fn_name argument_types                                              \
+  static inline return_type fn_name argument_types                                \
   {                                                                               \
       using ReturnType = return_type;                                             \
       typedef return_type (*fn_type) argument_types;                              \
@@ -56,7 +60,7 @@ static void* juce_loadJackFunction (const char* const name)
   }
 
 #define JUCE_DECL_VOID_JACK_FUNCTION(fn_name, argument_types, arguments)          \
-  void fn_name argument_types                                                     \
+  static inline void fn_name argument_types                                       \
   {                                                                               \
       typedef void (*fn_type) argument_types;                                     \
       static fn_type fn = (fn_type) juce_loadJackFunction (#fn_name);             \
@@ -82,9 +86,7 @@ JUCE_DECL_JACK_FUNCTION (const char**, jack_get_ports, (jack_client_t* client, c
 JUCE_DECL_JACK_FUNCTION (int, jack_connect, (jack_client_t* client, const char* source_port, const char* destination_port), (client, source_port, destination_port))
 JUCE_DECL_JACK_FUNCTION (const char*, jack_port_name, (const jack_port_t* port), (port))
 JUCE_DECL_JACK_FUNCTION (void*, jack_set_port_connect_callback, (jack_client_t* client, JackPortConnectCallback connect_callback, void* arg), (client, connect_callback, arg))
-JUCE_DECL_JACK_FUNCTION (jack_port_t* , jack_port_by_id, (jack_client_t* client, jack_port_id_t port_id), (client, port_id))
 JUCE_DECL_JACK_FUNCTION (int, jack_port_connected, (const jack_port_t* port), (port))
-JUCE_DECL_JACK_FUNCTION (int, jack_port_connected_to, (const jack_port_t* port, const char* port_name), (port, port_name))
 JUCE_DECL_JACK_FUNCTION (int, jack_set_xrun_callback, (jack_client_t* client, JackXRunCallback xrun_callback, void* arg), (client, xrun_callback, arg))
 JUCE_DECL_JACK_FUNCTION (int, jack_port_flags, (const jack_port_t* port), (port))
 JUCE_DECL_JACK_FUNCTION (jack_port_t*, jack_port_by_name, (jack_client_t* client, const char* name), (client, name))
@@ -604,8 +606,19 @@ public:
         inputNames.clear();
         outputNames.clear();
 
+       #if (JUCE_LINUX || JUCE_BSD)
         if (juce_libjackHandle == nullptr)  juce_libjackHandle = dlopen ("libjack.so.0", RTLD_LAZY);
         if (juce_libjackHandle == nullptr)  juce_libjackHandle = dlopen ("libjack.so",   RTLD_LAZY);
+       #elif JUCE_MAC
+        if (juce_libjackHandle == nullptr)  juce_libjackHandle = dlopen ("libjack.dylib", RTLD_LAZY);
+       #elif JUCE_WINDOWS
+        #if JUCE_64BIT
+         if (juce_libjackHandle == nullptr)  juce_libjackHandle = LoadLibraryA ("libjack64.dll");
+        #else
+         if (juce_libjackHandle == nullptr)  juce_libjackHandle = LoadLibraryA ("libjack.dll");
+        #endif
+       #endif
+
         if (juce_libjackHandle == nullptr)  return;
 
         jack_status_t status = {};

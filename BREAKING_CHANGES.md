@@ -1,5 +1,143 @@
 # JUCE breaking changes
 
+# Version 8.0.7
+
+## Change
+
+The default Visual Studio project settings for "Debug Information Format" and
+"Force Generation of Debug Symbols" have changed in the Projucer. By default
+debug symbols are generated using the /Z7 flag.
+
+**Possible Issues**
+
+PDB file generation may change depending on the combination of "Debug
+Information Format" and "Force Generation of Debug Symbols" settings.
+
+**Workaround**
+
+Change the "Debug Information Format" and "Force Generation of Debug Symbols"
+settings for each Visual Studio configuration as required.
+
+**Rationale**
+
+The default behaviour of using "Program Database (/Zi)" is incompatible with
+some CI workflows and caching mechanisms. Enabling "Force Generation of Debug
+Symbols" by default also ensures /Z7 behaves more like /Zi by always generating
+a PDB file.
+
+
+## Change
+
+The signatures of virtual functions ImagePixelData::applyGaussianBlurEffect()
+and ImagePixelData::applySingleChannelBoxBlurEffect() have changed.
+ImageEffects::applyGaussianBlurEffect() and
+ImageEffects::applySingleChannelBoxBlurEffect() have been removed.
+
+**Possible Issues**
+
+User code overriding or calling these functions will fail to compile.
+
+**Workaround**
+
+The blur functions now operate within a specified area of the image. Update
+overriding implementations accordingly. Instead of using the ImageEffects
+static functions, call the corresponding ImagePixelData member functions
+directly.
+
+**Rationale**
+
+The blur functions had a 'temporary storage' parameter which was not
+particularly useful in practice, so this has been removed. Moving the
+functionality of the ImageEffects static members directly into corresponding
+member functions of ImagePixelData simplifies the public API.
+
+
+# Version 8.0.5
+
+## Change
+
+HeaderItemComponent::getIdealSize no longer applies modifiers to the result
+directly. Instead, these changes have been moved to the respective LookAndFeel
+methods, enabling better customization.
+
+**Possible Issues**
+
+Code that overrides LookAndFeel::getIdealPopupMenuItemSize and relied on the
+previous modifiers applied in HeaderItemComponent::getIdealSize may now behave
+differently.
+
+**Workaround**
+
+Review any overrides of LookAndFeel::getIdealPopupMenuItemSize and apply the
+necessary adjustments to account for any missing modifiers or changes in
+behavior.
+
+**Rationale**
+
+The previous approach did not allow users to customize the applied modifiers
+through the LookAndFeel class. Moving this logic to LookAndFeel methods ensures
+consistent and flexible customization.
+
+
+## Change
+
+The behavior of AudioTransportSource::hasStreamFinished has been updated to
+correctly return true when the stream has finished.
+
+**Possible Issues**
+
+This change may affect any code that relied on the previous behavior, where the
+method never returned true.
+
+**Workaround**
+
+Review and update any code that depends on hasStreamFinished or any registered
+ChangeListeners that respond to stream completion.
+
+**Rationale**
+
+The previous behavior, where hasStreamFinished never returned true, was
+incorrect. This update ensures the method works as intended.
+
+
+## Change
+
+AudioProcessor::TrackProperties now uses std::optional.
+
+**Possible Issues**
+
+Code that accessed TrackProperties properties directly will no longer compile.
+
+**Workaround**
+
+Use std::optional::has_value() to check if a property is set. Or Access the
+property value safely using std::optional::value() or operator*.
+
+**Rationale**
+
+Previously, it was not possible to distinguish whether a TrackProperty was
+explicitly set or if the default value was being used.
+
+
+## Change
+
+Support for Arm32 in Projucer has been removed for Windows targets.
+
+**Possible Issues**
+
+Projucer projects targeting Arm32 on Windows will no longer be able to select
+that option.
+
+**Workaround**
+
+Select Arm64 or Arm64EC instead of Arm32, and port any 32-bit specific code to
+64-bit.
+
+**Rationale**
+
+32-bit Arm support has been deprecated in current versions of Windows 11.
+
+
 # Version 8.0.4
 
 ## Change
@@ -8,7 +146,8 @@ The Javascript implementation has been moved into a independent juce module.
 
 **Possible Issues**
 
-Any existing use of JavascriptEngine, JSCursor, or JSObject will fail to compile.
+Any existing use of JavascriptEngine, JSCursor, or JSObject will fail to
+compile.
 
 **Workaround**
 
@@ -18,6 +157,27 @@ Add the new juce_javascript module to the project.
 
 The Javascript implementation increases compilation times while being required
 by only a select number of projects.
+
+
+## Change
+
+The return type for VST3ClientExtensions::getCompatibleClasses() has changed
+from a String to an array of 16 bytes.
+
+**Possible Issues**
+
+Any inherited classes overriding this method might fail to compile.
+
+**Workaround**
+
+Either explicitly switch to creating a 16-byte std::array or use
+VST3ClientExtensions::toInterfaceId() to convert a string to a 16-byte array.
+
+**Rationale**
+
+As part of adding functionality to support migrating parameter IDs from
+compatible plugins it was useful to switch to a safer type for representing
+VST3 interface IDs that closer matches the VST3 SDK types.
 
 
 ## Change

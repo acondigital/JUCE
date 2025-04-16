@@ -258,11 +258,11 @@ public:
         JUCE_TRACE_EVENT_INT_RECT (etw::repaint, etw::paintKeyword, snappedRectangle);
     }
 
-    SavedState* startFrame (float dpiScale) override
+    SavedState* startFrame() override
     {
         setSize (getClientRect());
 
-        auto* savedState = Pimpl::startFrame (dpiScale);
+        auto* savedState = Pimpl::startFrame();
 
         if (savedState == nullptr)
             return nullptr;
@@ -366,7 +366,7 @@ public:
         if (const auto hr = snapshot->CopyFromBitmap (&p, buffer, &sourceRect); FAILED (hr))
             return {};
 
-        const Image result { new Direct2DPixelData { deviceContext, snapshot } };
+        const Image result { new Direct2DPixelData { D2DUtilities::getDeviceForContext (deviceContext), snapshot } };
 
         swap.getChain()->Present (0, DXGI_PRESENT_DO_NOT_WAIT);
 

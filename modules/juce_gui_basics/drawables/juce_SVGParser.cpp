@@ -1301,7 +1301,7 @@ private:
         }
         else
         {
-            auto linkedFile = originalFile.getParentDirectory().getChildFile (link);
+            auto linkedFile = originalFile.getSiblingFile (link);
 
             if (linkedFile.existsAsFile())
                 inputStream = linkedFile.createInputStream();

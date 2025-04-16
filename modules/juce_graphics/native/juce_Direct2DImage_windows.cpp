@@ -35,23 +35,6 @@
 namespace juce
 {
 
-Rectangle<int> Direct2DPixelDataPage::getBounds() const
-{
-    return bitmap != nullptr ? D2DUtilities::rectFromSize (bitmap->GetPixelSize()).withPosition (topLeft)
-                             : Rectangle<int>{};
-}
-
-//==============================================================================
-static ComSmartPtr<ID2D1Device1> getDeviceForContext (ComSmartPtr<ID2D1DeviceContext1> context)
-{
-    if (context == nullptr)
-        return {};
-
-    ComSmartPtr<ID2D1Device> device;
-    context->GetDevice (device.resetAndGetPointerAddress());
-    return device.getInterface<ID2D1Device1>();
-}
-
 static std::vector<Direct2DPixelDataPage> makePages (ComSmartPtr<ID2D1Device1> device,
                                                      ImagePixelData::Ptr backingData,
                                                      bool needsClear)
@@ -165,6 +148,15 @@ static bool readFromDirect2DBitmap (ComSmartPtr<ID2D1DeviceContext1> context,
             return {};
         }
 
+        // Unimplemented, should never be called
+        void applyGaussianBlurEffectInArea (Rectangle<int>, float) override { jassertfalse; }
+        // Unimplemented, should never be called
+        void applySingleChannelBoxBlurEffectInArea (Rectangle<int>, int) override { jassertfalse; }
+        // Unimplemented, should never be called
+        void multiplyAllAlphasInArea (Rectangle<int>, float) override { jassertfalse; }
+        // Unimplemented, should never be called
+        void desaturateInArea (Rectangle<int>) override { jassertfalse; }
+
         void initialiseBitmapData (Image::BitmapData& bd, int x, int y, Image::BitmapData::ReadWriteMode mode) override
         {
             if (mode != Image::BitmapData::readOnly)
@@ -200,9 +192,9 @@ static bool readFromDirect2DBitmap (ComSmartPtr<ID2D1DeviceContext1> context,
                                             target->pixelFormat,
                                             (int) size.width,
                                             (int) size.height } };
-    Image::BitmapData srcBitmap { srcImage, Image::BitmapData::readOnly };
-    Image::BitmapData dstBitmap { Image { target }, Image::BitmapData::writeOnly };
-    BitmapDataDetail::convert (srcBitmap, dstBitmap);
+
+    Image::BitmapData dstData { Image { target }, Image::BitmapData::writeOnly };
+    dstData.convertFrom ({ srcImage, Image::BitmapData::readOnly });
 
     return true;
 }
@@ -226,9 +218,12 @@ static ImagePixelData::Ptr readFromDirect2DBitmap (ComSmartPtr<ID2D1DeviceContex
     return result;
 }
 
-Direct2DPixelDataPages::Direct2DPixelDataPages (ComSmartPtr<ID2D1Bitmap1> bitmap,
+//==============================================================================
+Direct2DPixelDataPages::Direct2DPixelDataPages (ImagePixelDataBackupExtensions* parent,
+                                                ComSmartPtr<ID2D1Bitmap1> bitmap,
                                                 ImagePixelData::Ptr image)
-    : backingData (image),
+    : parentBackupExtensions (parent),
+      backingData (image),
       pages { Page { bitmap, {} } },
       upToDate (true)
 {
@@ -236,21 +231,36 @@ Direct2DPixelDataPages::Direct2DPixelDataPages (ComSmartPtr<ID2D1Bitmap1> bitmap
     jassert (image->createType()->getTypeID() == SoftwareImageType{}.getTypeID());
 }
 
-Direct2DPixelDataPages::Direct2DPixelDataPages (ComSmartPtr<ID2D1DeviceContext1> context,
+Direct2DPixelDataPages::Direct2DPixelDataPages (ImagePixelDataBackupExtensions* parent,
+                                                ComSmartPtr<ID2D1Device1> device,
                                                 ImagePixelData::Ptr image,
                                                 State initialState)
-    : backingData (image),
-      pages (makePages (getDeviceForContext (context), backingData, initialState == State::cleared)),
+    : parentBackupExtensions (parent),
+      backingData (image),
+      pages (makePages (device, backingData, initialState == State::cleared)),
       upToDate (initialState != State::unsuitableToRead)
 {
     // The backup image must be a software image
     jassert (image->createType()->getTypeID() == SoftwareImageType{}.getTypeID());
 }
 
+auto Direct2DPixelDataPages::getPagesWithoutSync() const -> Span<const Page>
+{
+    // Accessing page data which is out-of-date!
+    jassert (upToDate);
+    return pages;
+}
+
 auto Direct2DPixelDataPages::getPages() -> Span<const Page>
 {
-    if (std::exchange (upToDate, true))
+    const ScopeGuard scope { [this] { upToDate = true; } };
+
+    if (upToDate)
         return pages;
+
+    // We need to make sure that the parent image is up-to-date, otherwise we'll end up
+    // fetching outdated image data.
+    parentBackupExtensions->backupNow();
 
     auto sourceToUse = backingData->pixelFormat == Image::RGB
                      ? Image { backingData }.convertedToFormat (Image::ARGB)
@@ -284,12 +294,11 @@ Direct2DPixelData::Direct2DPixelData (ImagePixelData::Ptr ptr, State initialStat
     directX->adapters.addListener (*this);
 }
 
-Direct2DPixelData::Direct2DPixelData (ComSmartPtr<ID2D1DeviceContext1> context,
+Direct2DPixelData::Direct2DPixelData (ComSmartPtr<ID2D1Device1> device,
                                       ComSmartPtr<ID2D1Bitmap1> page)
-    : Direct2DPixelData (readFromDirect2DBitmap (context, page), State::drawn)
+    : Direct2DPixelData (readFromDirect2DBitmap (Direct2DDeviceContext::create (device), page), State::drawn)
 {
-    if (const auto device1 = getDeviceForContext (context))
-        pagesForDevice.emplace (device1, Direct2DPixelDataPages { page, backingData });
+    pagesForDevice.emplace (device, Direct2DPixelDataPages { this, page, backingData });
 }
 
 Direct2DPixelData::Direct2DPixelData (Image::PixelFormat formatToUse, int w, int h, bool clearIn)
@@ -303,14 +312,56 @@ Direct2DPixelData::~Direct2DPixelData()
     directX->adapters.removeListener (*this);
 }
 
-auto Direct2DPixelData::getIteratorForContext (ComSmartPtr<ID2D1DeviceContext1> context)
+bool Direct2DPixelData::createPersistentBackup (ComSmartPtr<ID2D1Device1> deviceHint)
 {
-    const auto device1 = getDeviceForContext (context);
+    if (state == State::drawing)
+    {
+        // Creating a backup while the image is being modified would leave the backup in an invalid state
+        jassertfalse;
+        return false;
+    }
 
-    if (device1 == nullptr)
+    // If the backup is not outdated, then it must be up-to-date
+    if (state != State::outdated)
+        return true;
+
+    const auto iter = deviceHint != nullptr
+                    ? pagesForDevice.find (deviceHint)
+                    : std::find_if (pagesForDevice.begin(),
+                                    pagesForDevice.end(),
+                                    [] (const auto& pair) { return pair.second.isUpToDate(); });
+
+    if (iter == pagesForDevice.end())
+    {
+        // There's no up-to-date image in graphics memory, so the graphics device probably got
+        // removed, dropping our image data. The image data is irrevocably lost!
+        jassertfalse;
+        return false;
+    }
+
+    auto& [device, pages] = *iter;
+    const auto context = Direct2DDeviceContext::create (device);
+
+    if (context == nullptr)
+    {
+        // Unable to create a device context to read the image data
+        jassertfalse;
+        return false;
+    }
+
+    const auto result = readFromDirect2DBitmap (context, pages.getPagesWithoutSync().front().bitmap, backingData);
+    state = result ? State::drawn : State::outdated;
+    return result;
+}
+
+auto Direct2DPixelData::getIteratorForDevice (ComSmartPtr<ID2D1Device1> device)
+{
+    mostRecentDevice = device;
+
+    if (device == nullptr)
         return pagesForDevice.end();
 
-    const auto iter = pagesForDevice.find (device1);
+    const auto iter = pagesForDevice.find (device);
 
     if (iter != pagesForDevice.end())
         return iter;
@@ -343,6 +394,11 @@ auto Direct2DPixelData::getIteratorForContext (ComSmartPtr<ID2D1DeviceContext1> 
             case State::drawing:
                 jassertfalse;
                 return Pages::State::unsuitableToRead;
+
+            // If this is hit, the pages will need to be synced through main memory before they are
+            // suitable for reading.
+            case State::outdated:
+                return Pages::State::unsuitableToRead;
         }
 
         // Unhandled switch case?
@@ -350,8 +406,88 @@ auto Direct2DPixelData::getIteratorForContext (ComSmartPtr<ID2D1DeviceContext1> 
         return Pages::State::unsuitableToRead;
     }();
 
-    const auto pair = pagesForDevice.emplace (device1, Pages { context, backingData, initialState });
+    const auto pair = pagesForDevice.emplace (device, Pages { this, device, backingData, initialState });
     return pair.first;
+}
+
+struct Direct2DPixelData::Context : public Direct2DImageContext
+{
+    Context (Ptr selfIn,
+             ComSmartPtr<ID2D1DeviceContext1> context,
+             ComSmartPtr<ID2D1Bitmap1> target)
+        : Direct2DImageContext (context, target, D2DUtilities::rectFromSize (target->GetPixelSize())),
+          self (selfIn),
+          frameStarted (startFrame (1.0f))
+    {
+        if (frameStarted)
+            self->state = State::drawing;
+    }
+
+    ~Context() override
+    {
+        if (! frameStarted)
+            return;
+
+        endFrame();
+
+        self->state = State::outdated;
+
+        if (self->sync)
+            self->createPersistentBackup (D2DUtilities::getDeviceForContext (getDeviceContext()));
+    }
+
+    Ptr self;
+    bool frameStarted = false;
+};
+
+auto Direct2DPixelData::createNativeContext() -> std::unique_ptr<Context>
+{
+    if (state == State::drawing)
+        return nullptr;
+
+    sendDataChangeMessage();
+
+    const auto device = std::invoke ([this]() -> ComSmartPtr<ID2D1Device1>
+    {
+        if (mostRecentDevice != nullptr)
+            return mostRecentDevice;
+
+        const auto adapter = directX->adapters.getDefaultAdapter();
+
+        if (adapter == nullptr)
+            return nullptr;
+
+        return adapter->direct2DDevice;
+    });
+
+    if (device == nullptr)
+        return nullptr;
+
+    const auto context = Direct2DDeviceContext::create (device);
+
+    if (context == nullptr)
+        return nullptr;
+
+    const auto maxSize = (int) context->GetMaximumBitmapSize();
+
+    if (maxSize < width || maxSize < height)
+        return nullptr;
+
+    const auto iter = getIteratorForDevice (device);
+    jassert (iter != pagesForDevice.end());
+
+    const auto pages = iter->second.getPages();
+
+    if (pages.empty() || pages.front().bitmap == nullptr)
+        return nullptr;
+
+    // Every page *other than the page we're about to render onto* will need to be updated from the
+    // software image before it is next read.
+    for (auto i = pagesForDevice.begin(); i != pagesForDevice.end(); ++i)
+        if (i != iter)
+            i->second.markOutdated();
+
+    return std::make_unique<Context> (this, context, pages.front().bitmap);
 }
 
 std::unique_ptr<LowLevelGraphicsContext> Direct2DPixelData::createLowLevelContext()
@@ -403,81 +539,17 @@ std::unique_ptr<LowLevelGraphicsContext> Direct2DPixelData::createLowLevelContex
         return std::make_unique<InertContext>();
     }
 
-    sendDataChangeMessage();
+    if (auto ptr = createNativeContext())
+        return ptr;
 
-    const auto invalidateAllAndReturnSoftwareContext = [this]
-    {
-        // If this is hit, something has gone wrong when trying to create a Direct2D renderer,
-        // and we're about to fall back to a software renderer instead.
-        jassertfalse;
+    // If this is hit, something has gone wrong when trying to create a Direct2D renderer,
+    // and we're about to fall back to a software renderer instead.
+    jassertfalse;
 
-        for (auto& pair : pagesForDevice)
-            pair.second.markOutdated();
+    for (auto& pair : pagesForDevice)
+        pair.second.markOutdated();
 
-        return backingData->createLowLevelContext();
-    };
-
-    const auto adapter = directX->adapters.getDefaultAdapter();
-
-    if (adapter == nullptr)
-        return invalidateAllAndReturnSoftwareContext();
-
-    const auto context = Direct2DDeviceContext::create (adapter);
-
-    if (context == nullptr)
-        return invalidateAllAndReturnSoftwareContext();
-
-    const auto maxSize = (int) context->GetMaximumBitmapSize();
-
-    if (maxSize < width || maxSize < height)
-        return invalidateAllAndReturnSoftwareContext();
-
-    const auto iter = getIteratorForContext (context);
-    jassert (iter != pagesForDevice.end());
-
-    const auto pages = iter->second.getPages();
-
-    if (pages.empty() || pages.front().bitmap == nullptr)
-        return invalidateAllAndReturnSoftwareContext();
-
-    // Every page *other than the page we're about to render onto* will need to be updated from the
-    // software image before it is next read.
-    for (auto i = pagesForDevice.begin(); i != pagesForDevice.end(); ++i)
-        if (i != iter)
-            i->second.markOutdated();
-
-    struct FlushingContext : public Direct2DImageContext
-    {
-        FlushingContext (Direct2DPixelData::Ptr selfIn,
-                         ComSmartPtr<ID2D1DeviceContext1> context,
-                         ComSmartPtr<ID2D1Bitmap1> target)
-            : Direct2DImageContext (context, target, D2DUtilities::rectFromSize (target->GetPixelSize())),
-              storedContext (context),
-              storedTarget (target),
-              self (selfIn),
-              backup (startFrame (1.0f) ? selfIn->backingData : nullptr)
-        {
-            if (backup != nullptr)
-                self->state = State::drawing;
-        }
-
-        ~FlushingContext() override
-        {
-            if (backup == nullptr)
-                return;
-
-            endFrame();
-            readFromDirect2DBitmap (storedContext, storedTarget, backup);
-            self->state = State::drawn;
-        }
-
-        ComSmartPtr<ID2D1DeviceContext1> storedContext;
-        ComSmartPtr<ID2D1Bitmap1> storedTarget;
-        Direct2DPixelData::Ptr self;
-        ImagePixelData::Ptr backup;
-    };
-
-    return std::make_unique<FlushingContext> (this, context, pages.front().bitmap);
+    return backingData->createLowLevelContext();
 }
 
 void Direct2DPixelData::initialiseBitmapData (Image::BitmapData& bitmap,
@@ -485,11 +557,17 @@ void Direct2DPixelData::initialiseBitmapData (Image::BitmapData& bitmap,
                                               int y,
                                               Image::BitmapData::ReadWriteMode mode)
 {
+    // If this is hit, there's already another BitmapData or Graphics context active on this
+    // image. Only one BitmapData or Graphics context may be active on an Image at a time.
+    jassert (state != State::drawing);
+
+    // If we're about to read from the image, and the main-memory copy of the image is outdated,
+    // then we must force a backup so that we can return up-to-date data
+    if (mode != Image::BitmapData::writeOnly && state == State::outdated)
+        createPersistentBackup (nullptr);
+
     backingData->initialiseBitmapData (bitmap, x, y, mode);
 
-    // If we're only reading, then we can assume that the bitmap data was flushed to the software
-    // image directly after it was last modified by d2d, so we can just use the BitmapData
-    // initialised by the backing data.
     // If we're writing, then we'll need to update our textures next time we try to use them, so
     // mark them as outdated.
     if (mode == Image::BitmapData::readOnly)
@@ -497,12 +575,9 @@ void Direct2DPixelData::initialiseBitmapData (Image::BitmapData& bitmap,
 
     struct Releaser : public Image::BitmapData::BitmapDataReleaser
     {
-        Releaser (std::unique_ptr<BitmapDataReleaser> wrappedIn, Direct2DPixelData::Ptr selfIn)
+        Releaser (std::unique_ptr<BitmapDataReleaser> wrappedIn, Ptr selfIn)
             : wrapped (std::move (wrappedIn)), self (std::move (selfIn))
         {
-            // If this is hit, there's already another BitmapData or Graphics context active on this
-            // image. Only one BitmapData or Graphics context may be active on an Image at a time.
-            jassert (self->state != State::drawing);
             self->state = State::drawing;
         }
 
@@ -515,139 +590,213 @@ void Direct2DPixelData::initialiseBitmapData (Image::BitmapData& bitmap,
         }
 
         std::unique_ptr<BitmapDataReleaser> wrapped;
-        Direct2DPixelData::Ptr self;
+        Ptr self;
     };
 
     bitmap.dataReleaser = std::make_unique<Releaser> (std::move (bitmap.dataReleaser), this);
 }
 
-void Direct2DPixelData::applyGaussianBlurEffect (float radius, Image& result)
+template <typename Fn>
+bool Direct2DPixelData::applyEffectInArea (Rectangle<int> area, Fn&& configureEffect)
 {
-    // The result must be a separate image!
-    jassert (result.getPixelData() != this);
+    const auto internalGraphicsContext = createNativeContext();
 
-    const auto adapter = directX->adapters.getDefaultAdapter();
-
-    if (adapter == nullptr)
+    if (internalGraphicsContext == nullptr)
     {
-        result = {};
-        return;
+        // Something when wrong while trying to create a device context with this image as a target
+        jassertfalse;
+        return false;
     }
 
-    const auto context = Direct2DDeviceContext::create (adapter);
-    const auto maxSize = (int) context->GetMaximumBitmapSize();
+    const auto context = internalGraphicsContext->getDeviceContext();
 
-    if (context == nullptr || maxSize < width || maxSize < height)
-    {
-        result = {};
-        return;
-    }
+    if (context == nullptr)
+        return false;
 
-    ComSmartPtr<ID2D1Effect> effect;
-    if (const auto hr = context->CreateEffect (CLSID_D2D1GaussianBlur, effect.resetAndGetPointerAddress());
-        FAILED (hr) || effect == nullptr)
-    {
-        result = {};
-        return;
-    }
+    ComSmartPtr<ID2D1Image> target;
+    context->GetTarget (target.resetAndGetPointerAddress());
 
-    effect->SetInput (0, getFirstPageForContext (context));
-    effect->SetValue (D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, radius / 3.0f);
+    if (target == nullptr)
+        return false;
 
-    const auto outputPixelData = Direct2DBitmap::createBitmap (context,
-                                                               Image::ARGB,
-                                                               D2D1::SizeU ((UINT32) width, (UINT32) height),
-                                                               D2D1_BITMAP_OPTIONS_TARGET);
+    const auto size = D2D1::SizeU ((UINT32) area.getWidth(), (UINT32) area.getHeight());
 
-    context->SetTarget (outputPixelData);
-    context->BeginDraw();
-    context->Clear();
-    context->DrawImage (effect);
-    context->EndDraw();
+    ComSmartPtr<ID2D1Bitmap> copy;
+    context->CreateBitmap (size,
+                           D2D1::BitmapProperties (context->GetPixelFormat()),
+                           copy.resetAndGetPointerAddress());
 
-    result = Image { new Direct2DPixelData { context, outputPixelData } };
+    if (copy == nullptr)
+        return false;
+
+    const auto rect = D2DUtilities::toRECT_U (area);
+    copy->CopyFromRenderTarget (nullptr, context, &rect);
+
+    const auto effect = configureEffect (context, copy);
+
+    if (effect == nullptr)
+        return false;
+
+    const auto destPoint = D2D1::Point2F ((float) area.getX(), (float) area.getY());
+
+    context->PushAxisAlignedClip (D2DUtilities::toRECT_F (area), D2D1_ANTIALIAS_MODE_ALIASED);
+    context->DrawImage (effect,
+                        &destPoint,
+                        nullptr,
+                        D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                        D2D1_COMPOSITE_MODE_SOURCE_COPY);
+    context->PopAxisAlignedClip();
+    return true;
 }
 
-void Direct2DPixelData::applySingleChannelBoxBlurEffect (int radius, Image& result)
+void Direct2DPixelData::applyGaussianBlurEffectInArea (Rectangle<int> b, float radius)
 {
-    // The result must be a separate image!
-    jassert (result.getPixelData() != this);
-
-    const auto adapter = directX->adapters.getDefaultAdapter();
-
-    if (adapter == nullptr)
+    applyEffectInArea (b, [&] (auto dc, auto input) -> ComSmartPtr<ID2D1Effect>
     {
-        result = {};
-        return;
-    }
-
-    const auto context = Direct2DDeviceContext::create (adapter);
-    const auto maxSize = (int) context->GetMaximumBitmapSize();
-
-    if (context == nullptr || maxSize < width || maxSize < height)
-    {
-        result = {};
-        return;
-    }
-
-    constexpr FLOAT kernel[] { 1.0f / 9.0f, 2.0f / 9.0f, 3.0f / 9.0f, 2.0f / 9.0f, 1.0f / 9.0f };
-
-    ComSmartPtr<ID2D1Effect> begin, end;
-
-    for (auto horizontal : { false, true })
-    {
-        for (auto i = 0; i < radius; ++i)
+        ComSmartPtr<ID2D1Effect> effect;
+        if (const auto hr = dc->CreateEffect (CLSID_D2D1GaussianBlur, effect.resetAndGetPointerAddress());
+            FAILED (hr) || effect == nullptr)
         {
-            ComSmartPtr<ID2D1Effect> effect;
-            if (const auto hr = context->CreateEffect (CLSID_D2D1ConvolveMatrix, effect.resetAndGetPointerAddress());
-                FAILED (hr) || effect == nullptr)
-            {
-                result = {};
-                return;
-            }
+            return nullptr;
+        }
 
-            effect->SetValue (D2D1_CONVOLVEMATRIX_PROP_KERNEL_SIZE_X, (UINT32) (horizontal ? std::size (kernel) : 1));
-            effect->SetValue (D2D1_CONVOLVEMATRIX_PROP_KERNEL_SIZE_Y, (UINT32) (horizontal ? 1 : std::size (kernel)));
-            effect->SetValue (D2D1_CONVOLVEMATRIX_PROP_KERNEL_MATRIX, kernel);
+        effect->SetInput (0, input);
+        effect->SetValue (D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, radius / 3.0f);
+        return effect;
+    });
+}
 
-            if (begin == nullptr)
+void Direct2DPixelData::applySingleChannelBoxBlurEffectInArea (Rectangle<int> b, int radius)
+{
+    applyEffectInArea (b, [&] (auto dc, auto input) -> ComSmartPtr<ID2D1Effect>
+    {
+        constexpr FLOAT kernel[] { 1.0f / 9.0f, 2.0f / 9.0f, 3.0f / 9.0f, 2.0f / 9.0f, 1.0f / 9.0f };
+
+        ComSmartPtr<ID2D1Effect> begin, end;
+
+        for (auto horizontal : { false, true })
+        {
+            for (auto i = 0; i < roundToInt (radius); ++i)
             {
-                begin = effect;
-                end = effect;
-            }
-            else
-            {
-                effect->SetInputEffect (0, end);
-                end = effect;
+                ComSmartPtr<ID2D1Effect> effect;
+                if (const auto hr = dc->CreateEffect (CLSID_D2D1ConvolveMatrix, effect.resetAndGetPointerAddress());
+                    FAILED (hr) || effect == nullptr)
+                {
+                    // Unable to create effect!
+                    jassertfalse;
+                    return nullptr;
+                }
+
+                effect->SetValue (D2D1_CONVOLVEMATRIX_PROP_KERNEL_SIZE_X, (UINT32) (horizontal ? std::size (kernel) : 1));
+                effect->SetValue (D2D1_CONVOLVEMATRIX_PROP_KERNEL_SIZE_Y, (UINT32) (horizontal ? 1 : std::size (kernel)));
+                effect->SetValue (D2D1_CONVOLVEMATRIX_PROP_KERNEL_MATRIX, kernel);
+
+                if (begin == nullptr)
+                {
+                    begin = effect;
+                    end = effect;
+                }
+                else
+                {
+                    effect->SetInputEffect (0, end);
+                    end = effect;
+                }
             }
         }
-    }
 
-    if (begin == nullptr)
-    {
-        result = {};
-        return;
-    }
-
-    begin->SetInput (0, getFirstPageForContext (context));
-
-    const auto outputPixelData = Direct2DBitmap::createBitmap (context,
-                                                               Image::ARGB,
-                                                               D2D1::SizeU ((UINT32) width, (UINT32) height),
-                                                               D2D1_BITMAP_OPTIONS_TARGET);
-
-    context->SetTarget (outputPixelData);
-    context->BeginDraw();
-    context->Clear();
-    context->DrawImage (end);
-    context->EndDraw();
-
-    result = Image { new Direct2DPixelData { context, outputPixelData } };
+        begin->SetInput (0, input);
+        return end;
+    });
 }
 
-auto Direct2DPixelData::getPagesForContext (ComSmartPtr<ID2D1DeviceContext1> context) -> Span<const Page>
+void Direct2DPixelData::multiplyAllAlphasInArea (Rectangle<int> b, float value)
 {
-    return getIteratorForContext (context)->second.getPages();
+    applyEffectInArea (b, [&] (auto dc, auto input) -> ComSmartPtr<ID2D1Effect>
+    {
+        ComSmartPtr<ID2D1Effect> effect;
+        if (const auto hr = dc->CreateEffect (CLSID_D2D1Opacity, effect.resetAndGetPointerAddress());
+            FAILED (hr) || effect == nullptr)
+        {
+            return nullptr;
+        }
+
+        effect->SetInput (0, input);
+        effect->SetValue (D2D1_OPACITY_PROP_OPACITY, value);
+        return effect;
+    });
+}
+
+void Direct2DPixelData::desaturateInArea (Rectangle<int> b)
+{
+    applyEffectInArea (b, [&] (auto dc, auto input) -> ComSmartPtr<ID2D1Effect>
+    {
+        ComSmartPtr<ID2D1Effect> effect;
+        if (const auto hr = dc->CreateEffect (CLSID_D2D1Saturation, effect.resetAndGetPointerAddress());
+            FAILED (hr) || effect == nullptr)
+        {
+            return nullptr;
+        }
+
+        effect->SetInput (0, input);
+        effect->SetValue (D2D1_SATURATION_PROP_SATURATION, 0.0f);
+        return effect;
+    });
+}
+
+auto Direct2DPixelData::getPagesForDevice (ComSmartPtr<ID2D1Device1> device) -> Span<const Page>
+{
+    return getIteratorForDevice (device)->second.getPages();
+}
+
+void Direct2DPixelData::setBackupEnabled (bool x)
+{
+    sync = x;
+}
+
+bool Direct2DPixelData::isBackupEnabled() const
+{
+    return sync;
+}
+
+bool Direct2DPixelData::backupNow()
+{
+    return createPersistentBackup (nullptr);
+}
+
+bool Direct2DPixelData::needsBackup() const
+{
+    return state == State::outdated;
+}
+
+bool Direct2DPixelData::canBackup() const
+{
+    return std::any_of (pagesForDevice.begin(), pagesForDevice.end(), [] (const auto& pair)
+    {
+        return pair.second.isUpToDate();
+    });
+}
+
+auto Direct2DPixelData::getNativeExtensions() -> NativeExtensions
+{
+    struct Wrapped
+    {
+        explicit Wrapped (Ptr s)
+            : self (s) {}
+
+        Span<const Direct2DPixelDataPage> getPages (ComSmartPtr<ID2D1Device1> x) const
+        {
+            return self->getPagesForDevice (x);
+        }
+
+        Point<int> getTopLeft() const
+        {
+            return {};
+        }
+
+        Ptr self;
+    };
+
+    return NativeExtensions { Wrapped { this } };
 }
 
 //==============================================================================
@@ -753,7 +902,8 @@ public:
         beginTest ("Ensure data parity across mapped page boundaries");
         {
             const auto adapterToUse = directX->adapters.getDefaultAdapter();
-            const auto contextToUse = Direct2DDeviceContext::create (adapterToUse);
+            const auto deviceToUse = adapterToUse->direct2DDevice;
+            const auto contextToUse = Direct2DDeviceContext::create (deviceToUse);
 
             for (auto sourceFormat : formats)
             {
@@ -778,8 +928,8 @@ public:
 
                     const auto maxPageBounds = [&]
                     {
-                        if (auto* data = dynamic_cast<Direct2DPixelData*> (d2dImage.getPixelData()))
-                            if (auto pages = data->getPagesForContext (contextToUse); ! pages.empty())
+                        if (auto* data = dynamic_cast<Direct2DPixelData*> (d2dImage.getPixelData().get()))
+                            if (auto pages = data->getPagesForDevice (deviceToUse); ! pages.empty())
                                 return pages.front().getBounds();
 
                         return Rectangle<int>{};
