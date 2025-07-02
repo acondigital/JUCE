@@ -739,11 +739,13 @@ namespace AAXClasses
             void mouseUp   (const MouseEvent& e) override  { callMouseMethod (e, &AAX_IViewContainer::HandleParameterMouseUp); }
             void mouseDrag (const MouseEvent& e) override  { callMouseMethod (e, &AAX_IViewContainer::HandleParameterMouseDrag); }
 
+           #if JucePlugin_Enable_ARA
             void resized() override
             {
                 if (pluginEditor != nullptr)
                     pluginEditor->setBounds (getLocalBounds());
             }
+           #endif
 
             void parentSizeChanged() override
             {
