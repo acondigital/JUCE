@@ -71,10 +71,8 @@ struct JuceMainMenuBarHolder final : private DeletedAtShutdown
 
     NSMenu* mainMenuBar = nil;
 
-    JUCE_DECLARE_SINGLETON_SINGLETHREADED (JuceMainMenuBarHolder, true)
+    JUCE_DECLARE_SINGLETON_SINGLETHREADED_INLINE (JuceMainMenuBarHolder, true)
 };
-
-JUCE_IMPLEMENT_SINGLETON (JuceMainMenuBarHolder)
 
 //==============================================================================
 class JuceMainMenuHandler final : private MenuBarModel::Listener,
@@ -371,18 +369,8 @@ private:
             {
                 NSArray* array = nil;
 
-                if (@available (macOS 10.11, *))
-                {
-                    [menuNib instantiateWithOwner: NSApp
-                                  topLevelObjects: &array];
-                }
-                else
-                {
-                    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
-                    [menuNib instantiateNibWithOwner: NSApp
-                                     topLevelObjects: &array];
-                    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
-                }
+                [menuNib instantiateWithOwner: NSApp
+                              topLevelObjects: &array];
 
                 for (id object in array)
                 {

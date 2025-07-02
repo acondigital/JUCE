@@ -129,14 +129,16 @@ static constexpr int translateVirtualToAsciiKeyCode (int keyCode) noexcept
 constexpr int extendedKeyModifier = 0x30000;
 
 //==============================================================================
-class JuceCALayerDelegate final : public ObjCClass<NSObject<CALayerDelegate>>
+struct JuceCALayerDelegateCallback
+{
+    virtual ~JuceCALayerDelegateCallback() = default;
+    virtual void displayLayer (CALayer*) = 0;
+};
+
+class API_AVAILABLE (macos (10.12)) JuceCALayerDelegate final : public ObjCClass<NSObject<CALayerDelegate>>
 {
 public:
-    struct Callback
-    {
-        virtual ~Callback() = default;
-        virtual void displayLayer (CALayer*) = 0;
-    };
+    using Callback = JuceCALayerDelegateCallback;
 
     static NSObject<CALayerDelegate>* construct (Callback* owner)
     {
@@ -176,7 +178,7 @@ private:
 
 //==============================================================================
 class NSViewComponentPeer final : public ComponentPeer,
-                                  private JuceCALayerDelegate::Callback
+                                  private JuceCALayerDelegateCallback
 {
 public:
     NSViewComponentPeer (Component& comp, const int windowStyleFlags, NSView* viewToAttachTo)
@@ -188,7 +190,7 @@ public:
         appFocusChangeCallback = appFocusChanged;
         isEventBlockedByModalComps = checkEventBlockedByModalComps;
 
-        auto r = makeNSRect (component.getLocalBounds());
+        auto r = makeCGRect (component.getLocalBounds());
 
         view = [createViewInstance() initWithFrame: r];
         setOwner (view, this);
@@ -220,12 +222,9 @@ public:
 
         if ((windowStyleFlags & ComponentPeer::windowRequiresSynchronousCoreGraphicsRendering) == 0)
         {
-            if (@available (macOS 10.8, *))
-            {
-                [view setWantsLayer: YES];
-                [view setLayerContentsRedrawPolicy: NSViewLayerContentsRedrawDuringViewResize];
-                [view layer].drawsAsynchronously = YES;
-            }
+            [view setWantsLayer: YES];
+            [view setLayerContentsRedrawPolicy: NSViewLayerContentsRedrawDuringViewResize];
+            [view layer].drawsAsynchronously = YES;
         }
 
        #if JUCE_COREGRAPHICS_RENDER_WITH_MULTIPLE_PAINT_CALLS
@@ -253,8 +252,7 @@ public:
             [window setColorSpace: [NSColorSpace sRGBColorSpace]];
             setOwner (window, this);
 
-            if (@available (macOS 10.10, *))
-                [window setAccessibilityElement: YES];
+            [window setAccessibilityElement: YES];
 
             [window orderOut: nil];
             [window setDelegate: (id<NSWindowDelegate>) window];
@@ -264,8 +262,7 @@ public:
             if (! [window isOpaque])
                 [window setBackgroundColor: [NSColor clearColor]];
 
-           if (@available (macOS 10.9, *))
-                [view setAppearance: [NSAppearance appearanceNamed: NSAppearanceNameAqua]];
+            [view setAppearance: [NSAppearance appearanceNamed: NSAppearanceNameAqua]];
 
             [window setHasShadow: ((windowStyleFlags & windowHasDropShadow) != 0)];
 
@@ -394,7 +391,7 @@ public:
 
     void setBounds (const Rectangle<int>& newBounds, bool) override
     {
-        auto r = makeNSRect (newBounds);
+        auto r = makeCGRect (newBounds);
         auto oldViewSize = [view frame].size;
 
         if (isSharedWindow)
@@ -403,13 +400,8 @@ public:
         }
         else
         {
-            // Repaint behaviour of setFrame seemed to change in 10.11, and the drawing became synchronous,
-            // causing performance issues. But sending an async update causes flickering in older versions,
-            // hence this version check to use the old behaviour on pre 10.11 machines
-            static bool isPre10_11 = SystemStats::getOperatingSystemType() <= SystemStats::MacOSX_10_10;
-
             [window setFrame: [window frameRectForContentRect: flippedScreenRect (r)]
-                     display: isPre10_11];
+                     display: false];
         }
 
         if (! CGSizeEqualToSize (oldViewSize, r.size))
@@ -473,6 +465,11 @@ public:
     bool isMinimised() const override
     {
         return [window isMiniaturized];
+    }
+
+    bool isShowing() const override
+    {
+        return [window isVisible] && ! isMinimised();
     }
 
     NSWindowCollectionBehavior getCollectionBehavior (bool forceFullScreen) const
@@ -545,12 +542,20 @@ public:
 
                 if (! isWindowAtPoint (viewWindow, screenPoint))
                     return false;
-
             }
         }
 
-        NSView* v = [view hitTest: NSMakePoint (viewFrame.origin.x + localPos.getX(),
-                                                viewFrame.origin.y + localPos.getY())];
+        const auto pointInSuperview = std::invoke ([&]
+        {
+            const auto local = NSMakePoint (localPos.x, localPos.y);
+
+            if (auto* superview = [view superview])
+                return [view convertPoint: local toView: superview];
+
+            return local;
+        });
+
+        NSView* v = [view hitTest: pointInSuperview];
 
         return trueIfInAChildWindow ? (v != nil)
                                     : (v == view);
@@ -739,6 +744,12 @@ public:
 
     void redirectMouseDrag (NSEvent* ev)
     {
+        // Very rarely we seem to receive mouseDragged messages in between draggingEntered and draggingExited
+        // messages. If our drag target is in a viewport, it can cause it to scroll around, so we ignore these
+        // stray mouseDragged messages.
+        if (draggingActive)
+            return;
+
         ModifierKeys::currentModifiers = ModifierKeys::currentModifiers.withFlags (getModifierForButtonNumber ([ev buttonNumber]));
         sendMouseEvent (ev);
     }
@@ -751,7 +762,10 @@ public:
         NSPoint screenPos = [[ev window] convertRectToScreen: NSMakeRect (windowPos.x, windowPos.y, 1.0f, 1.0f)].origin;
 
         if (isWindowAtPoint ([ev window], screenPos))
-            sendMouseEvent (ev);
+        {
+            if (contains (getMousePos (ev, view).roundToInt(), false))
+                sendMouseEvent (ev);
+        }
         else
             // moved into another window which overlaps this one, so trigger an exit
             handleMouseEvent (MouseInputSource::InputSourceType::mouse, MouseInputSource::offscreenMousePos, ModifierKeys::currentModifiers,
@@ -958,16 +972,7 @@ public:
         if (r.size.width < 1.0f || r.size.height < 1.0f)
             return;
 
-        auto cg = []
-        {
-            if (@available (macOS 10.10, *))
-                return (CGContextRef) [[NSGraphicsContext currentContext] CGContext];
-
-            JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
-            return (CGContextRef) [[NSGraphicsContext currentContext] graphicsPort];
-            JUCE_END_IGNORE_WARNINGS_GCC_LIKE
-        }();
-
+        auto* cg = (CGContextRef) [[NSGraphicsContext currentContext] CGContext];
         drawRectWithContext (cg, r);
     }
 
@@ -1089,9 +1094,9 @@ public:
         return areAnyWindowsInLiveResize();
     }
 
-    void onVBlank()
+    void onVBlank (double timestampSec)
     {
-        vBlankListeners.call ([] (auto& l) { l.onVBlank(); });
+        callVBlankListeners (timestampSec);
         setNeedsDisplayRectangles();
     }
 
@@ -1116,7 +1121,7 @@ public:
         const Rectangle currentBounds { (float) frameSize.width, (float) frameSize.height };
 
         for (auto& i : deferredRepaints)
-            [view setNeedsDisplayInRect: makeNSRect (i)];
+            [view setNeedsDisplayInRect: makeCGRect (i)];
 
         lastRepaintTime = Time::getMillisecondCounter();
 
@@ -1313,7 +1318,7 @@ public:
         constrainer->checkBounds (pos, original, screenBounds,
                                   isStretchingTop, isStretchingLeft, isStretchingBottom, isStretchingRight);
 
-        return flippedScreenRect (makeNSRect (detail::ScalingHelpers::scaledScreenPosToUnscaled (scale, pos)));
+        return flippedScreenRect (makeCGRect (detail::ScalingHelpers::scaledScreenPosToUnscaled (scale, pos)));
     }
 
     static void showArrowCursorIfNeeded()
@@ -1463,9 +1468,9 @@ public:
             if (@available (macOS 10.13, *))
                 return NSPasteboardTypeFileURL;
 
-            JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
+            JUCE_BEGIN_IGNORE_DEPRECATION_WARNINGS
             return (NSString*) kUTTypeFileURL;
-            JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+            JUCE_END_IGNORE_DEPRECATION_WARNINGS
         }();
 
         return [NSArray arrayWithObjects: type, (NSString*) kPasteboardTypeFileURLPromise, NSPasteboardTypeString, nil];
@@ -1473,6 +1478,12 @@ public:
 
     BOOL sendDragCallback (bool (ComponentPeer::* callback) (const DragInfo&), id <NSDraggingInfo> sender)
     {
+        if (callback == &NSViewComponentPeer::handleDragMove)
+            draggingActive = true;
+
+        if (callback == &NSViewComponentPeer::handleDragExit || callback == &NSViewComponentPeer::handleDragDrop)
+            draggingActive = false;
+
         NSPasteboard* pasteboard = [sender draggingPasteboard];
         NSString* contentType = [pasteboard availableTypeFromArray: getSupportedDragTypes()];
 
@@ -1636,7 +1647,7 @@ public:
 
         const auto handled = [&]() -> bool
         {
-            if (auto* target = findCurrentTextInputTarget())
+            if (findCurrentTextInputTarget() != nullptr)
                 if (const auto* inputContext = [view inputContext])
                     return [inputContext handleEvent: ev] && ! viewCannotHandleEvent;
 
@@ -1732,6 +1743,8 @@ public:
     bool isStretchingTop = false, isStretchingLeft = false, isStretchingBottom = false, isStretchingRight = false;
     bool windowRepresentsFile = false;
     bool isAlwaysOnTop = false, wasAlwaysOnTop = false, inBecomeKeyWindow = false;
+    bool inPerformKeyEquivalent = false;
+    bool draggingActive = false;
     String stringBeingComposed;
     int startOfMarkedTextInTextInputTarget = 0;
 
@@ -1772,13 +1785,18 @@ private:
         explicit AsyncRepainter (NSViewComponentPeer& o) : owner (o) {}
         ~AsyncRepainter() override { cancelPendingUpdate(); }
 
-        void markUpdated (const CGDirectDisplayID x)
+        void markUpdated (const CGDirectDisplayID x, double timestampSec)
         {
             {
                 const std::scoped_lock lock { mutex };
 
-                if (std::find (backgroundDisplays.cbegin(), backgroundDisplays.cend(), x) == backgroundDisplays.cend())
-                    backgroundDisplays.push_back (x);
+                if (const auto it = std::find_if (backgroundVBlankEvents.cbegin(),
+                                                  backgroundVBlankEvents.cend(),
+                                                  [&x] (const auto& event) { return event.display == x; });
+                    it == backgroundVBlankEvents.cend())
+                {
+                    backgroundVBlankEvents.push_back ({ x, timestampSec });
+                }
             }
 
             triggerAsyncUpdate();
@@ -1789,20 +1807,28 @@ private:
         {
             {
                 const std::scoped_lock lock { mutex };
-                mainThreadDisplays = backgroundDisplays;
-                backgroundDisplays.clear();
+                mainThreadVBlankEvents = backgroundVBlankEvents;
+                backgroundVBlankEvents.clear();
             }
 
-            for (const auto& display : mainThreadDisplays)
+            for (const auto& event : mainThreadVBlankEvents)
+            {
                 if (auto* peerView = owner.view)
                     if (auto* peerWindow = [peerView window])
-                        if (display == ScopedDisplayLink::getDisplayIdForScreen ([peerWindow screen]))
-                            owner.onVBlank();
+                        if (event.display == ScopedDisplayLink::getDisplayIdForScreen ([peerWindow screen]))
+                            owner.onVBlank (event.timeSec);
+            }
         }
+
+        struct VBlankEvent
+        {
+            CGDirectDisplayID display{};
+            double timeSec{};
+        };
 
         NSViewComponentPeer& owner;
         std::mutex mutex;
-        std::vector<CGDirectDisplayID> backgroundDisplays, mainThreadDisplays;
+        std::vector<VBlankEvent> backgroundVBlankEvents, mainThreadVBlankEvents;
     };
 
     AsyncRepainter asyncRepainter { *this };
@@ -1815,7 +1841,10 @@ private:
     {
         sharedDisplayLinks->registerFactory ([this] (CGDirectDisplayID display)
         {
-            return [this, display] { asyncRepainter.markUpdated (display); };
+            return [this, display] (double timestampSec)
+                   {
+                       asyncRepainter.markUpdated (display, timestampSec);
+                   };
         })
     };
 
@@ -1928,14 +1957,10 @@ private:
             case NSEventTypeBeginGesture:
             case NSEventTypeEndGesture:
             case NSEventTypeQuickLook:
-           #if JUCE_64BIT
             case NSEventTypeSmartMagnify:
             case NSEventTypePressure:
             case NSEventTypeDirectTouch:
-           #endif
-           #if defined (MAC_OS_X_VERSION_10_15) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_15
             case NSEventTypeChangeMode:
-           #endif
             default:
                 return false;
         }
@@ -1976,13 +2001,9 @@ private:
 
     void setFullScreenSizeConstraints (const ComponentBoundsConstrainer& c)
     {
-        if (@available (macOS 10.11, *))
-        {
-            const auto minSize = NSMakeSize (static_cast<float> (c.getMinimumWidth()),
-                                             0.0f);
-            [window setMinFullScreenContentSize: minSize];
-            [window setMaxFullScreenContentSize: NSMakeSize (100000, 100000)];
-        }
+        const auto minSize = NSMakeSize (static_cast<float> (c.getMinimumWidth()), 0.0f);
+        [window setMinFullScreenContentSize: minSize];
+        [window setMaxFullScreenContentSize: NSMakeSize (100000, 100000)];
     }
 
     void displayLayer ([[maybe_unused]] CALayer* layer) override
@@ -2326,6 +2347,13 @@ struct JuceNSViewClass final : public NSViewComponentPeerWrapper<ObjCClass<NSVie
             if (auto* owner = getOwner (self))
             {
                 const auto ref = owner->safeComponent;
+                const auto prev = std::exchange (owner->inPerformKeyEquivalent, true);
+
+                const ScopeGuard scope { [&ref, owner, prev]
+                {
+                    if (ref != nullptr)
+                        owner->inPerformKeyEquivalent = prev;
+                } };
 
                 if (owner->sendEventToInputContextOrComponent (ev))
                 {
@@ -2567,7 +2595,7 @@ struct JuceNSViewClass final : public NSViewComponentPeerWrapper<ObjCClass<NSVie
                                                                    : target->getTextBounds (codePointRange).getRectangle (0);
                         const auto areaOnDesktop = comp->localAreaToGlobal (rect);
 
-                        return flippedScreenRect (makeNSRect (detail::ScalingHelpers::scaledScreenPosToUnscaled (areaOnDesktop)));
+                        return flippedScreenRect (makeCGRect (detail::ScalingHelpers::scaledScreenPosToUnscaled (areaOnDesktop)));
                     }
                 }
             }
@@ -2786,9 +2814,6 @@ struct JuceNSWindowClass final : public NSViewComponentPeerWrapper<ObjCClass<NSW
 
         addMethod (@selector (windowWillEnterFullScreen:), [] (id self, SEL, NSNotification*)
         {
-            if (SystemStats::getOperatingSystemType() <= SystemStats::MacOSX_10_9)
-                return;
-
             if (auto* owner = getOwner (self))
                 if (owner->hasNativeTitleBar() && (owner->getStyleFlags() & ComponentPeer::windowIsResizable) == 0)
                     [owner->window setStyleMask: NSWindowStyleMaskBorderless];
@@ -2838,7 +2863,7 @@ struct JuceNSWindowClass final : public NSViewComponentPeerWrapper<ObjCClass<NSW
                                                             .withHeight ((float) constrainer->getMaximumHeight());
                         const auto constrained = expanded.constrainedWithin (safeScreenBounds);
 
-                        return flippedScreenRect (makeNSRect ([&]
+                        return flippedScreenRect (makeCGRect ([&]
                                                               {
                                                                   if (constrained == owner->getBounds().toFloat())
                                                                       return owner->lastSizeBeforeZoom.toFloat();
@@ -2870,10 +2895,7 @@ struct JuceNSWindowClass final : public NSViewComponentPeerWrapper<ObjCClass<NSW
 
         addMethod (@selector (accessibilitySubrole), [] (id self, SEL) -> NSAccessibilitySubrole
         {
-            if (@available (macOS 10.10, *))
-                return [getAccessibleChild (self) accessibilitySubrole];
-
-            return nil;
+            return [getAccessibleChild (self) accessibilitySubrole];
         });
 
         addMethod (@selector (window:shouldDragDocumentWithEvent:from:withPasteboard:), [] (id self, SEL, id /*window*/, NSEvent*, NSPoint, NSPasteboard*)
@@ -2981,7 +3003,7 @@ void Desktop::setKioskComponent (Component* kioskComp, bool shouldBeEnabled, boo
         else if (! shouldBeEnabled)
             [NSApp setPresentationOptions: NSApplicationPresentationDefault];
 
-        peer->setFullScreen (true);
+        peer->setFullScreen (shouldBeEnabled);
     }
     else
     {

@@ -192,6 +192,21 @@ void DocumentWindow::maximiseButtonPressed()
     setFullScreen (! isFullScreen());
 }
 
+void DocumentWindow::windowControlClickedClose()
+{
+    closeButtonPressed();
+}
+
+void DocumentWindow::windowControlClickedMinimise()
+{
+    minimiseButtonPressed();
+}
+
+void DocumentWindow::windowControlClickedMaximise()
+{
+    maximiseButtonPressed();
+}
+
 //==============================================================================
 void DocumentWindow::paint (Graphics& g)
 {
@@ -324,6 +339,10 @@ auto DocumentWindow::findControlAtPoint (Point<float> pt) const -> WindowControl
 
         return WindowControlKind::sizeTop;
     }
+
+    for (const auto& c : getChildren())
+        if (detail::ComponentHelpers::hitTest (*c, c->getLocalPoint (this, pt)))
+            return WindowControlKind::client;
 
     return WindowControlKind::caption;
 }

@@ -39,11 +39,7 @@ namespace TimeHelpers
 {
     static std::tm millisToLocal (int64 millis) noexcept
     {
-       #if JUCE_WINDOWS && JUCE_MINGW
-        auto now = (time_t) (millis / 1000);
-        return *localtime (&now);
-
-       #elif JUCE_WINDOWS
+       #if JUCE_WINDOWS
         std::tm result;
         millis /= 1000;
 
@@ -65,11 +61,7 @@ namespace TimeHelpers
 
     static std::tm millisToUTC (int64 millis) noexcept
     {
-       #if JUCE_WINDOWS && JUCE_MINGW
-        auto now = (time_t) (millis / 1000);
-        return *gmtime (&now);
-
-       #elif JUCE_WINDOWS
+       #if JUCE_WINDOWS
         std::tm result;
         millis /= 1000;
 
@@ -231,7 +223,7 @@ Time::Time (int year, int month, int day,
 //==============================================================================
 int64 Time::currentTimeMillis() noexcept
 {
-   #if JUCE_WINDOWS && ! JUCE_MINGW
+   #if JUCE_WINDOWS
     struct _timeb t;
     _ftime_s (&t);
     return ((int64) t.time) * 1000 + t.millitm;
@@ -685,7 +677,10 @@ public:
 
         expect (Time (1982, 1, 1, 12, 0, 0, 0, true) + RelativeTime::days (365) == Time (1983, 1, 1, 12, 0, 0, 0, true));
         expect (Time (1970, 1, 1, 12, 0, 0, 0, true) + RelativeTime::days (365) == Time (1971, 1, 1, 12, 0, 0, 0, true));
+
+       #if ! JUCE_32BIT
         expect (Time (2038, 1, 1, 12, 0, 0, 0, true) + RelativeTime::days (365) == Time (2039, 1, 1, 12, 0, 0, 0, true));
+       #endif
 
         expect (Time (1982, 1, 1, 12, 0, 0, 0, false) + RelativeTime::days (365) == Time (1983, 1, 1, 12, 0, 0, 0, false));
         expect (Time (1970, 1, 1, 12, 0, 0, 0, false) + RelativeTime::days (365) == Time (1971, 1, 1, 12, 0, 0, 0, false));

@@ -42,7 +42,6 @@ public:
     //==============================================================================
     bool isXcode() const override                { return false; }
     bool isVisualStudio() const override         { return false; }
-    bool isCodeBlocks() const override           { return false; }
     bool isMakefile() const override             { return false; }
     bool isAndroidStudio() const override        { return true;  }
 
@@ -132,8 +131,8 @@ public:
           androidManifestCustomXmlElements     (settings, Ids::androidManifestCustomXmlElements,     getUndoManager()),
           androidGradleSettingsContent         (settings, Ids::androidGradleSettingsContent,         getUndoManager()),
           androidVersionCode                   (settings, Ids::androidVersionCode,                   getUndoManager(), "1"),
-          androidMinimumSDK                    (settings, Ids::androidMinimumSDK,                    getUndoManager(), "21"),
-          androidTargetSDK                     (settings, Ids::androidTargetSDK,                     getUndoManager(), "34"),
+          androidMinimumSDK                    (settings, Ids::androidMinimumSDK,                    getUndoManager(), "24"),
+          androidTargetSDK                     (settings, Ids::androidTargetSDK,                     getUndoManager(), "35"),
           androidTheme                         (settings, Ids::androidTheme,                         getUndoManager()),
           androidExtraAssetsFolder             (settings, Ids::androidExtraAssetsFolder,             getUndoManager()),
           androidOboeRepositoryPath            (settings, Ids::androidOboeRepositoryPath,            getUndoManager()),
@@ -158,10 +157,10 @@ public:
           androidKeyStorePass                  (settings, Ids::androidKeyStorePass,                  getUndoManager(), "android"),
           androidKeyAlias                      (settings, Ids::androidKeyAlias,                      getUndoManager(), "androiddebugkey"),
           androidKeyAliasPass                  (settings, Ids::androidKeyAliasPass,                  getUndoManager(), "android"),
-          gradleVersion                        (settings, Ids::gradleVersion,                        getUndoManager(), "8.2"),
+          gradleVersion                        (settings, Ids::gradleVersion,                        getUndoManager(), "8.11.1"),
           gradleToolchain                      (settings, Ids::gradleToolchain,                      getUndoManager(), "clang"),
           gradleClangTidy                      (settings, Ids::gradleClangTidy,                      getUndoManager(), false),
-          androidPluginVersion                 (settings, Ids::androidPluginVersion,                 getUndoManager(), "7.4.2"),
+          androidPluginVersion                 (settings, Ids::androidPluginVersion,                 getUndoManager(), "8.10.0"),
           AndroidExecutable                    (getAppSettings().getStoredPath (Ids::androidStudioExePath, TargetOS::getThisOS()).get().toString())
     {
         name = getDisplayName();
@@ -172,7 +171,7 @@ public:
     void createToolchainExporterProperties (PropertyListBuilder& props)
     {
         props.add (new TextPropertyComponent (gradleVersion, "Gradle Version", 32, false),
-                   "The version of gradle that is used to build this app (4.10 is fine for JUCE)");
+                   "The version of gradle that is used to build this app");
 
         props.add (new TextPropertyComponent (androidPluginVersion, "Android Plug-in Version", 32, false),
                    "The version of the android build plugin for gradle that is used to build this app");
@@ -220,6 +219,7 @@ public:
         writeFile (targetFolder, "build.gradle",                             getProjectBuildGradleFileContent());
         writeFile (appFolder,    "build.gradle",                             getAppBuildGradleFileContent (modules));
         writeFile (targetFolder, "local.properties",                         getLocalPropertiesFileContent());
+        writeFile (targetFolder, "gradle.properties",                        getGradlePropertiesFileContent());
         writeFile (targetFolder, "gradle/wrapper/gradle-wrapper.properties", getGradleWrapperPropertiesFileContent());
 
         writeBinaryFile (targetFolder, "gradle/wrapper/LICENSE-for-gradlewrapper.txt", BinaryData::LICENSE,           BinaryData::LICENSESize);
@@ -244,7 +244,7 @@ public:
 
         if (androidExtraAssetsFolderValue.isNotEmpty())
         {
-            auto extraAssets = getProject().getFile().getParentDirectory().getChildFile (androidExtraAssetsFolderValue);
+            auto extraAssets = getProject().getFile().getSiblingFile (androidExtraAssetsFolderValue);
 
             if (extraAssets.exists() && extraAssets.isDirectory())
             {
@@ -697,10 +697,10 @@ private:
         mo << "apply plugin: 'com.android." << (isLibrary() ? "library" : "application") << "'" << newLine << newLine;
 
         // NDK 26 is required for ANDROID_WEAK_API_DEFS, which is in turn required for weak-linking AFontMatcher
-        mo << "def ndkVersionString = \"26.2.11394342\"" << newLine << newLine;
+        mo << "def ndkVersionString = \"28.1.13356709\"" << newLine << newLine;
 
         mo << "android {"                                                                    << newLine;
-        mo << "    compileSdkVersion " << static_cast<int> (androidTargetSDK.get())          << newLine;
+        mo << "    compileSdk " << static_cast<int> (androidTargetSDK.get())                 << newLine;
         mo << "    ndkVersion ndkVersionString"                                              << newLine;
         mo << "    namespace " << project.getBundleIdentifierString().toLowerCase().quoted() << newLine;
         mo << "    externalNativeBuild {"                                                    << newLine;
@@ -925,7 +925,7 @@ private:
             mo << "        implementation files('libs/" << File (d).getFileName() << "')" << newLine;
 
         if (isInAppBillingEnabled())
-            mo << "        implementation 'com.android.billingclient:billing:5.0.0'" << newLine;
+            mo << "        implementation 'com.android.billingclient:billing:7.0.0'" << newLine;
 
         if (areRemoteNotificationsEnabled())
         {
@@ -1069,6 +1069,16 @@ private:
         return replaceLineFeeds (props, getNewLineString());
     }
 
+    String getGradlePropertiesFileContent() const
+    {
+        String result;
+
+        // Silences warning when Google Play Billing v7 is enabled
+        result << "android.useAndroidX=true" << newLine;
+
+        return replaceLineFeeds (result, getNewLineString());
+    }
+
     String getGradleWrapperPropertiesFileContent() const
     {
         String props;
@@ -1135,7 +1145,7 @@ private:
                    "An integer value that represents the version of the application code, relative to other versions.");
 
         props.add (new TextPropertyComponent (androidMinimumSDK, "Minimum SDK Version", 32, false),
-                   "The number of the minimum version of the Android SDK that the app requires (must be 21 or higher).");
+                   "The number of the minimum version of the Android SDK that the app requires (must be 24 or higher).");
 
         props.add (new TextPropertyComponent (androidTargetSDK, "Target SDK Version", 32, false),
                    "The number of the version of the Android SDK that the app is targeting.");
@@ -1274,7 +1284,7 @@ private:
                 if (remoteNotifsConfigFilePath.isEmpty())
                     remoteNotifsConfigFilePath = androidRemoteNotificationsConfigFile.get().toString();
 
-                File file (getProject().getFile().getChildFile (remoteNotifsConfigFilePath));
+                File file (getProject().getFile().getSiblingFile (remoteNotifsConfigFilePath));
                 // Settings file must be present for remote notifications to work and it must be called google-services.json.
                 jassert (file.existsAsFile() && file.getFileName() == "google-services.json");
 
@@ -1293,7 +1303,7 @@ private:
 
         for (auto& path : resourcePaths)
         {
-            auto file = getProject().getFile().getChildFile (path);
+            auto file = getProject().getFile().getSiblingFile (path);
 
             jassert (file.exists());
 
@@ -1561,8 +1571,7 @@ private:
         if (isContentSharingEnabled())
             defines.set ("JUCE_CONTENT_SHARING", "1");
 
-        if (supportsGLv3())
-            defines.set ("JUCE_ANDROID_GL_ES_VERSION_3_0", "1");
+        defines.set ("JUCE_ANDROID_GL_ES_VERSION_3_0", "1");
 
         if (areRemoteNotificationsEnabled())
         {
@@ -1618,7 +1627,7 @@ private:
 
         libraries.add ("log");
         libraries.add ("android");
-        libraries.add (supportsGLv3() ? "GLESv3" : "GLESv2");
+        libraries.add ("GLESv3");
         libraries.add ("EGL");
 
         return libraries;
@@ -1802,7 +1811,7 @@ private:
             if (glVersion == nullptr)
                 glVersion = manifest.createNewChildElement ("uses-feature");
 
-            setAttributeIfNotPresent (*glVersion, "android:glEsVersion", (static_cast<int> (androidMinimumSDK.get()) >= 18 ? "0x00030000" : "0x00020000"));
+            setAttributeIfNotPresent (*glVersion, "android:glEsVersion", "0x00030000");
             setAttributeIfNotPresent (*glVersion, "android:required", "true");
         }
     }
@@ -1841,8 +1850,7 @@ private:
 
         if (androidScreenOrientation.get() == "landscape")
         {
-            setAttributeIfNotPresent (*act, "android:screenOrientation",
-                                      static_cast<int> (androidMinimumSDK.get()) < 18 ? "sensorLandscape" : "userLandscape");
+            setAttributeIfNotPresent (*act, "android:screenOrientation", "userLandscape");
         }
         else
         {
@@ -1982,6 +1990,9 @@ private:
         if (androidVibratePermission.get())
             s.add ("android.permission.VIBRATE");
 
+        if (arePushNotificationsEnabled())
+            s.add ("android.permission.POST_NOTIFICATIONS");
+
         return getCleanedStringArray (s);
     }
 
@@ -2000,11 +2011,6 @@ private:
             escapedArray.add ("\"" + element.replace ("\\", "\\\\").replace ("\"", "\\\"") + "\"");
 
         return escapedArray.joinIntoString (", ");
-    }
-
-    bool supportsGLv3() const
-    {
-        return (static_cast<int> (androidMinimumSDK.get()) >= 18);
     }
 
     //==============================================================================

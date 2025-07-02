@@ -35,7 +35,7 @@
 namespace juce
 {
 
-#if (JUCE_MINGW && JUCE_32BIT) || (! defined (_MSC_VER) && ! defined (__uuidof))
+#if ! defined (_MSC_VER) && ! defined (__uuidof)
  #ifdef __uuidof
   #undef __uuidof
  #endif
@@ -116,6 +116,8 @@ public:
     ComSmartPtr& operator= (const ComSmartPtr<U>& newP) { ComSmartPtr copy { newP }; std::swap (copy.p, p); return *this; }
     ComSmartPtr& operator= (const ComSmartPtr&    newP) { ComSmartPtr copy { newP }; std::swap (copy.p, p); return *this; }
 
+    ComClass* get() const noexcept { return p; }
+
     operator ComClass*() const noexcept     { return p; }
     ComClass& operator*() const noexcept    { return *p; }
     ComClass* operator->() const noexcept   { return p; }
@@ -154,10 +156,10 @@ public:
     {
         ComSmartPtr<OtherComClass> destObject;
 
-        if (QueryInterface (destObject) == S_OK)
-            return destObject;
+        if (const auto hr = QueryInterface (destObject); FAILED (hr))
+            return {};
 
-        return {};
+        return destObject;
     }
 
     /** Increments refcount. */

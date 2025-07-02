@@ -37,51 +37,31 @@ namespace juce
 
 static NSURL* appendParametersToFileURL (const URL& url, NSURL* fileUrl)
 {
-    if (@available (macOS 10.10, *))
-    {
-        const auto parameterNames = url.getParameterNames();
-        const auto parameterValues = url.getParameterValues();
+    const auto parameterNames = url.getParameterNames();
+    const auto parameterValues = url.getParameterValues();
 
-        jassert (parameterNames.size() == parameterValues.size());
+    jassert (parameterNames.size() == parameterValues.size());
 
-        if (parameterNames.isEmpty())
-            return fileUrl;
+    if (parameterNames.isEmpty())
+        return fileUrl;
 
-        NSUniquePtr<NSURLComponents> components ([[NSURLComponents alloc] initWithURL: fileUrl resolvingAgainstBaseURL: NO]);
-        NSUniquePtr<NSMutableArray> queryItems ([[NSMutableArray alloc] init]);
+    NSUniquePtr<NSURLComponents> components ([[NSURLComponents alloc] initWithURL: fileUrl resolvingAgainstBaseURL: NO]);
+    NSUniquePtr<NSMutableArray> queryItems ([[NSMutableArray alloc] init]);
 
-        for (int i = 0; i < parameterNames.size(); ++i)
-            [queryItems.get() addObject: [NSURLQueryItem queryItemWithName: juceStringToNS (parameterNames[i])
-                                                                     value: juceStringToNS (parameterValues[i])]];
+    for (int i = 0; i < parameterNames.size(); ++i)
+        [queryItems.get() addObject: [NSURLQueryItem queryItemWithName: juceStringToNS (parameterNames[i])
+                                                                 value: juceStringToNS (parameterValues[i])]];
 
-        [components.get() setQueryItems: queryItems.get()];
+    [components.get() setQueryItems: queryItems.get()];
 
-        return [components.get() URL];
-    }
-
-    const auto queryString = url.getQueryString();
-
-    if (queryString.isNotEmpty())
-        if (NSString* fileUrlString = [fileUrl absoluteString])
-            return [NSURL URLWithString: [fileUrlString stringByAppendingString: juceStringToNS (queryString)]];
-
-    return fileUrl;
+    return [components.get() URL];
 }
 
 static NSMutableURLRequest* getRequestForURL (const String& url, const StringArray* headers, const MemoryBlock* postData)
 {
     NSString* urlString = juceStringToNS (url);
 
-     if (@available (macOS 10.9, *))
-     {
-         urlString = [urlString stringByAddingPercentEncodingWithAllowedCharacters: [NSCharacterSet URLQueryAllowedCharacterSet]];
-     }
-     else
-     {
-         JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
-         urlString = [urlString stringByAddingPercentEscapesUsingEncoding: NSUTF8StringEncoding];
-         JUCE_END_IGNORE_WARNINGS_GCC_LIKE
-     }
+     urlString = [urlString stringByAddingPercentEncodingWithAllowedCharacters: [NSCharacterSet URLQueryAllowedCharacterSet]];
 
      if (NSURL* nsURL = [NSURL URLWithString: urlString])
      {
@@ -217,9 +197,9 @@ struct WebViewKeyEquivalentResponder final : public ObjCClass<WebViewClass>
                                  if (@available (macOS 10.12, *))
                                      return (modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask) == NSEventModifierFlagCommand;
 
-                                 JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
+                                 JUCE_BEGIN_IGNORE_DEPRECATION_WARNINGS
                                  return (modifierFlags & NSDeviceIndependentModifierFlagsMask) == NSCommandKeyMask;
-                                 JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+                                 JUCE_END_IGNORE_DEPRECATION_WARNINGS
                              }();
 
                              if (isCommandDown)
@@ -290,7 +270,7 @@ struct WebViewKeyEquivalentResponder final : public ObjCClass<WebViewClass>
     }
 };
 
-JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
+JUCE_BEGIN_IGNORE_DEPRECATION_WARNINGS
 struct DownloadClickDetectorClass final : public ObjCClass<NSObject>
 {
     DownloadClickDetectorClass()  : ObjCClass ("JUCEWebClickDetector_")
@@ -392,7 +372,7 @@ private:
         }
     }
 };
-JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+JUCE_END_IGNORE_DEPRECATION_WARNINGS
 #endif
 
 // Connects the delegate to the rest of the implementation without making WebViewDelegateClass
@@ -435,7 +415,7 @@ private:
     WebBrowserComponent::Options options;
 };
 
-struct API_AVAILABLE (macos (10.10)) WebViewDelegateClass final : public ObjCClass<NSObject>
+struct WebViewDelegateClass final : public ObjCClass<NSObject>
 {
     WebViewDelegateClass()  : ObjCClass ("JUCEWebViewDelegate_")
     {
@@ -444,60 +424,82 @@ struct API_AVAILABLE (macos (10.10)) WebViewDelegateClass final : public ObjCCla
         addMethod (@selector (webView:decidePolicyForNavigationAction:decisionHandler:),
                    [] (id self, SEL, WKWebView*, WKNavigationAction* navigationAction, void (^decisionHandler) (WKNavigationActionPolicy))
                    {
-                       if (getConnector (self)->getBrowser().pageAboutToLoad (nsStringToJuce ([[[navigationAction request] URL] absoluteString])))
-                           decisionHandler (WKNavigationActionPolicyAllow);
-                       else
-                           decisionHandler (WKNavigationActionPolicyCancel);
+                       if (auto* connector = getConnector (self))
+                       {
+                           if (connector->getBrowser().pageAboutToLoad (nsStringToJuce ([[[navigationAction request] URL] absoluteString])))
+                               decisionHandler (WKNavigationActionPolicyAllow);
+                           else
+                               decisionHandler (WKNavigationActionPolicyCancel);
+                       }
                    });
 
         addMethod (@selector (webView:didFinishNavigation:),
                    [] (id self, SEL, WKWebView* webview, WKNavigation*)
                    {
-                       getConnector (self)->getBrowser().pageFinishedLoading (nsStringToJuce ([[webview URL] absoluteString]));
+                       if (auto* connector = getConnector (self))
+                           connector->getBrowser().pageFinishedLoading (nsStringToJuce ([[webview URL] absoluteString]));
                    });
 
         addMethod (@selector (webView:didFailNavigation:withError:),
                    [] (id self, SEL, WKWebView*, WKNavigation*, NSError* error)
                    {
-                       displayError (&getConnector (self)->getBrowser(), error);
+                       if (auto* connector = getConnector (self))
+                           displayError (&connector->getBrowser(), error);
                    });
 
         addMethod (@selector (webView:didFailProvisionalNavigation:withError:),
                    [] (id self, SEL, WKWebView*, WKNavigation*, NSError* error)
                    {
-                       displayError (&getConnector (self)->getBrowser(), error);
+                       if (auto* connector = getConnector (self))
+                           displayError (&connector->getBrowser(), error);
                    });
 
         addMethod (@selector (webViewDidClose:),
                    [] (id self, SEL, WKWebView*)
                    {
-                       getConnector (self)->getBrowser().windowCloseRequest();
+                       if (auto* connector = getConnector (self))
+                           connector->getBrowser().windowCloseRequest();
                    });
 
         addMethod (@selector (webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:),
                    [] (id self, SEL, WKWebView*, WKWebViewConfiguration*, WKNavigationAction* navigationAction, WKWindowFeatures*)
                    {
-                       getConnector (self)->getBrowser().newWindowAttemptingToLoad (nsStringToJuce ([[[navigationAction request] URL] absoluteString]));
+                       if (auto* connector = getConnector (self))
+                           connector->getBrowser().newWindowAttemptingToLoad (nsStringToJuce ([[[navigationAction request] URL] absoluteString]));
+
                        return nil;
                    });
 
         addMethod (@selector (userContentController:didReceiveScriptMessage:),
                    [] (id self, SEL, id, id message)
                    {
-                       const auto object = fromObject ([message body]);
-
-                       if (! object.isString())
+                       if (auto* connector = getConnector (self))
                        {
-                           jassertfalse;
-                           return;
-                       }
+                           const auto object = fromObject ([message body]);
 
-                       getConnector (self)->handleNativeEvent (JSON::fromString (object.toString()));
+                           if (! object.isString())
+                           {
+                               jassertfalse;
+                               return;
+                           }
+
+                           connector->handleNativeEvent (JSON::fromString (object.toString()));
+                       }
                    });
 
         addMethod (@selector (webView:startURLSchemeTask:),
                    [] (id self, SEL, id, id urlSchemeTask)
                    {
+                       auto* connector = getConnector (self);
+
+                       if (connector == nullptr)
+                       {
+                           [urlSchemeTask didFailWithError: [NSError errorWithDomain:NSURLErrorDomain
+                                                                                code:NSURLErrorCancelled
+                                                                            userInfo: nil]];
+                           return;
+                       }
+
                        const auto request = [urlSchemeTask request];
 
                        auto* url = [&]
@@ -508,8 +510,7 @@ struct API_AVAILABLE (macos (10.10)) WebViewDelegateClass final : public ObjCCla
                        }();
 
                        const auto path = nsStringToJuce ([url path]);
-
-                       const auto resource = getConnector (self)->handleResourceRequest (path);
+                       const auto resource = connector->handleResourceRequest (path);
 
                        JUCE_AUTORELEASEPOOL
                        {
@@ -533,7 +534,7 @@ struct API_AVAILABLE (macos (10.10)) WebViewDelegateClass final : public ObjCCla
                                    @"Content-Type" : juceStringToNS (resource->mimeType),
                                } mutableCopy];
 
-                               if (auto allowedOrigin = getConnector (self)->getOptions().getAllowedOrigin())
+                               if (auto allowedOrigin = connector->getOptions().getAllowedOrigin())
                                {
                                    [headers setObject:juceStringToNS (*allowedOrigin)
                                                forKey:@"Access-Control-Allow-Origin"];
@@ -560,10 +561,10 @@ struct API_AVAILABLE (macos (10.10)) WebViewDelegateClass final : public ObjCCla
                    });
 
         JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wundeclared-selector")
-        if (@available (macOS 10.12, *))
+        if (@available (macOS 10.12, ios 18.4, *))
         {
             addMethod (@selector (webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:),
-                       [] (id, SEL, WKWebView*, WKOpenPanelParameters* parameters, WKFrameInfo*, void (^completionHandler)(NSArray<NSURL*>*))
+                       [] (id self, SEL, WKWebView*, WKOpenPanelParameters* parameters, WKFrameInfo*, void (^completionHandler)(NSArray<NSURL*>*))
                        {
                            using CompletionHandlerType = decltype (completionHandler);
 
@@ -596,6 +597,9 @@ struct API_AVAILABLE (macos (10.10)) WebViewDelegateClass final : public ObjCCla
                                ObjCObjectHandle<CompletionHandlerType> handler;
                                bool handlerCalled = false;
                            };
+
+                           if (getConnector (self) == nullptr)
+                               return;
 
                            auto chooser = std::make_unique<FileChooser> (TRANS ("Select the file you want to upload..."),
                                                                          File::getSpecialLocation (File::userHomeDirectory), "*");
@@ -672,7 +676,7 @@ window.__JUCE__ = {
 
 //==============================================================================
 #if JUCE_MAC
-JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
+JUCE_BEGIN_IGNORE_DEPRECATION_WARNINGS
 class WebBrowserComponent::Impl::Platform::WebViewImpl  : public WebBrowserComponent::Impl::PlatformInterface,
                                                          #if JUCE_MAC
                                                           public NSViewComponent
@@ -803,15 +807,15 @@ private:
     ObjCObjectHandle<WebView*> webView;
     ObjCObjectHandle<id> clickListener;
 };
-JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+JUCE_END_IGNORE_DEPRECATION_WARNINGS
 #endif
 
-class API_AVAILABLE (macos (10.11)) WebBrowserComponent::Impl::Platform::WKWebViewImpl : public WebBrowserComponent::Impl::PlatformInterface,
-                                                                                        #if JUCE_MAC
-                                                                                         public NSViewComponent
-                                                                                        #else
-                                                                                         public UIViewComponent
-                                                                                        #endif
+class WebBrowserComponent::Impl::Platform::WKWebViewImpl : public WebBrowserComponent::Impl::PlatformInterface,
+                                                          #if JUCE_MAC
+                                                           public NSViewComponent
+                                                          #else
+                                                           public UIViewComponent
+                                                          #endif
 {
 public:
     WKWebViewImpl (WebBrowserComponent::Impl& implIn,
@@ -855,7 +859,7 @@ public:
 
         [[config.get() userContentController] addUserScript:script.get()];
 
-        if (@available (macOS 10.13, iOS 11.0, *))
+        if (@available (macOS 10.13, *))
         {
             if (browserOptions.getResourceProvider() != nullptr)
                 [config.get() setURLSchemeHandler:webViewDelegate.get() forURLScheme:@"juce"];
@@ -901,6 +905,8 @@ public:
 
     ~WKWebViewImpl() override
     {
+        WebViewDelegateClass::setConnector (webViewDelegate.get(), nullptr);
+
         setView (nil);
         [webView.get() setNavigationDelegate: nil];
         [webView.get() setUIDelegate:         nil];
@@ -1105,14 +1111,7 @@ auto WebBrowserComponent::Impl::createAndInitPlatformDependentPart (WebBrowserCo
                                                                     const StringArray& userScripts)
     -> std::unique_ptr<PlatformInterface>
 {
-    if (@available (macOS 10.11, *))
-        return std::make_unique<Platform::WKWebViewImpl> (impl, options, userScripts);
-
-  #if JUCE_MAC
-    return std::make_unique<Platform::WebViewImpl> (impl, options.getUserAgent());
-  #endif
-
-    return {};
+    return std::make_unique<Platform::WKWebViewImpl> (impl, options, userScripts);
 }
 
 //==============================================================================

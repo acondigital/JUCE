@@ -1316,7 +1316,7 @@ public:
 
         if (supportsDisplayCutout())
         {
-            if (const auto methodID = AndroidView23.setOnApplyWindowInsetsListener)
+            if (const auto methodID = AndroidView.setOnApplyWindowInsetsListener)
             {
                 env->CallVoidMethod (view,
                                      methodID,
@@ -1460,6 +1460,11 @@ public:
     bool isMinimised() const override
     {
         return false;
+    }
+
+    bool isShowing() const override
+    {
+        return true;
     }
 
     void setFullScreen (bool shouldBeFullScreen) override
@@ -1843,7 +1848,8 @@ public:
     //==============================================================================
     static void handleDoFrameCallback (JNIEnv*, AndroidComponentPeer& t, [[maybe_unused]] int64 frameTimeNanos)
     {
-        t.vBlankListeners.call ([] (auto& l) { l.onVBlank(); });
+        const auto timestampSec = (double) frameTimeNanos / (double) 1'000'000'000;
+        t.callVBlankListeners (timestampSec);
     }
 
     static void handlePaintCallback (JNIEnv* env, AndroidComponentPeer& t, jobject canvas, jobject paint)
@@ -2694,7 +2700,7 @@ void Displays::findDisplays (float masterScale)
             if (! activityArea.isEmpty())
                 d.userArea = activityArea / d.scale;
 
-            if (const auto getRootWindowInsetsMethodId = AndroidView23.getRootWindowInsets)
+            if (const auto getRootWindowInsetsMethodId = AndroidView.getRootWindowInsets)
             {
                 LocalRef<jobject> insets (env->CallObjectMethod (contentView.get(), getRootWindowInsetsMethodId));
                 JuceInsets::tie (d) = getInsetsFromAndroidWindowInsets (insets, d.scale).tie();

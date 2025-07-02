@@ -50,9 +50,6 @@ namespace BinaryData
     extern const char*   export_android_svg;
     const int            export_android_svgSize = 3586;
 
-    extern const char*   export_codeBlocks_svg;
-    const int            export_codeBlocks_svgSize = 1726;
-
     extern const char*   export_linux_svg;
     const int            export_linux_svgSize = 28184;
 
@@ -210,7 +207,7 @@ namespace BinaryData
     const int            colourscheme_light_xmlSize = 1050;
 
     extern const char*   juce_runtime_arch_detection_cpp;
-    const int            juce_runtime_arch_detection_cppSize = 3658;
+    const int            juce_runtime_arch_detection_cppSize = 3575;
 
     extern const char*   juce_LinuxSubprocessHelper_cpp;
     const int            juce_LinuxSubprocessHelper_cppSize = 1865;
@@ -219,7 +216,7 @@ namespace BinaryData
     const int            juce_SimpleBinaryBuilder_cppSize = 12997;
 
     // Number of elements in the namedResourceList and originalFileNames arrays.
-    const int namedResourceListSize = 70;
+    const int namedResourceListSize = 69;
 
     // Points to the start of a list of resource names.
     extern const char* namedResourceList[];

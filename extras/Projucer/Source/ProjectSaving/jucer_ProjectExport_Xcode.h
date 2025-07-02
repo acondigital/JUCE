@@ -404,7 +404,6 @@ public:
 
     bool isXcode() const override                           { return true; }
     bool isVisualStudio() const override                    { return false; }
-    bool isCodeBlocks() const override                      { return false; }
     bool isMakefile() const override                        { return false; }
     bool isAndroidStudio() const override                   { return false; }
 
@@ -1005,18 +1004,18 @@ protected:
             if (iOS)
             {
                 props.add (new TextPropertyComponent (iosBaseSDK, "iOS Base SDK", 8, false),
-                           "The version of the iOS SDK to link against." + sdkInfoString + "9.3.");
+                           "The version of the iOS SDK to link against." + sdkInfoString + "14.4.");
 
                 props.add (new TextPropertyComponent (iosDeploymentTarget, "iOS Deployment Target", 8, false),
-                           "The minimum version of iOS to target." + sdkInfoString + "9.0.");
+                           "The minimum version of iOS to target." + sdkInfoString + "12.0.");
             }
             else
             {
                 props.add (new TextPropertyComponent (macOSBaseSDK, "macOS Base SDK", 8, false),
-                           "The version of the macOS SDK to link against." + sdkInfoString + "10.11.");
+                           "The version of the macOS SDK to link against." + sdkInfoString + "11.1.");
 
                 props.add (new TextPropertyComponent (macOSDeploymentTarget, "macOS Deployment Target", 8, false),
-                           "The minimum version of macOS to target." + sdkInfoString + "10.9.");
+                           "The minimum version of macOS to target." + sdkInfoString + "10.11.");
 
                 props.add (new ChoicePropertyComponent (macOSArchitecture, "macOS Architecture",
                                                         { "Native architecture of build machine", "Standard 32-bit",        "Standard 32/64-bit",     "Standard 64-bit" },
@@ -2538,23 +2537,25 @@ private:
             // using an adhoc certificate.
             if (target->type == XcodeTarget::VST3PlugIn || target->type == XcodeTarget::LV2PlugIn)
             {
-                auto script = ScriptBuilder{}
-                    .run ("codesign --verbose=4 --force --sign -", doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${FULL_PRODUCT_NAME}"))
-                    .insertLine();
+                ScriptBuilder script;
 
                 if (target->type == XcodeTarget::LV2PlugIn)
                 {
                     // Note: LV2 has a non-standard config build dir
-                    script.run (doubleQuoted ("${CONFIGURATION_BUILD_DIR}/../" + Project::getLV2FileWriterName()),
-                                doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${FULL_PRODUCT_NAME}"));
+                    script.run ("codesign --verbose=4 --force --sign -", doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${EXECUTABLE_NAME}"))
+                          .insertLine()
+                          .run (doubleQuoted ("${CONFIGURATION_BUILD_DIR}/../" + Project::getLV2FileWriterName()),
+                                doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${EXECUTABLE_NAME}"));
                 }
                 else if (target->type == XcodeTarget::VST3PlugIn)
                 {
-                    script.run (doubleQuoted ("${CONFIGURATION_BUILD_DIR}/" + Project::getVST3FileWriterName()),
+                    script.run ("codesign --verbose=4 --force --sign -", doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${WRAPPER_NAME}"))
+                          .insertLine()
+                          .run (doubleQuoted ("${CONFIGURATION_BUILD_DIR}/" + Project::getVST3FileWriterName()),
                                 "-create",
                                 "-version", doubleQuoted (project.getVersionString()),
-                                "-path",    doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${FULL_PRODUCT_NAME}"),
-                                "-output",  doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${FULL_PRODUCT_NAME}/Contents/Resources/moduleinfo.json"));
+                                "-path",    doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${WRAPPER_NAME}"),
+                                "-output",  doubleQuoted ("${CONFIGURATION_BUILD_DIR}/${WRAPPER_NAME}/Contents/Resources/moduleinfo.json"));
                 }
 
                 target->addShellScriptBuildPhase ("Update manifest", script.toStringWithDefaultShellOptions());
@@ -2587,7 +2588,7 @@ private:
 
                 const auto sourcePlugin = target->type == XcodeTarget::Target::LV2PlugIn
                                         ? "${TARGET_BUILD_DIR}"
-                                        : "${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}";
+                                        : "${TARGET_BUILD_DIR}/${WRAPPER_NAME}";
 
                 const auto copyScript = ScriptBuilder{}
                         .set ("destinationPlugin", installPath + "/$(basename " + doubleQuoted (sourcePlugin) + ")")
@@ -2595,8 +2596,8 @@ private:
                         .copy (sourcePlugin, "${destinationPlugin}");
 
                 const auto objectToSignTail = target->type == XcodeTarget::Target::LV2PlugIn
-                                            ? "/$(basename \"${TARGET_BUILD_DIR}\")/${FULL_PRODUCT_NAME}"
-                                            : "/${FULL_PRODUCT_NAME}";
+                                            ? "/$(basename \"${TARGET_BUILD_DIR}\")/${EXECUTABLE_NAME}"
+                                            : "/${WRAPPER_NAME}";
 
                 const auto codesignScript = ScriptBuilder{}
                         .ifSet ("EXPANDED_CODE_SIGN_IDENTITY",

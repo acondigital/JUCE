@@ -44,7 +44,7 @@
 
   ID:                 juce_core
   vendor:             juce
-  version:            8.0.0
+  version:            8.0.8
   name:               JUCE core classes
   description:        The essential set of basic JUCE classes, as required by all the other JUCE modules. Includes text, container, memory, threading and i/o functionality.
   website:            http://www.juce.com/juce
@@ -55,7 +55,6 @@
   OSXFrameworks:      Cocoa Foundation IOKit Security
   iOSFrameworks:      Foundation
   linuxLibs:          rt dl pthread
-  mingwLibs:          uuid wsock32 wininet version ole32 ws2_32 oleaut32 imm32 comdlg32 shlwapi rpcrt4 winmm
 
  END_JUCE_MODULE_DECLARATION
 
@@ -259,6 +258,7 @@ JUCE_END_IGNORE_WARNINGS_MSVC
 #include "memory/juce_ContainerDeletePolicy.h"
 #include "memory/juce_HeapBlock.h"
 #include "memory/juce_MemoryBlock.h"
+#include "memory/juce_CopyableHeapBlock.h"
 #include "memory/juce_ReferenceCountedObject.h"
 #include "memory/juce_ScopedPointer.h"
 #include "memory/juce_OptionalScopedPointer.h"
@@ -302,7 +302,7 @@ JUCE_END_IGNORE_WARNINGS_MSVC
 #include "misc/juce_ConsoleApplication.h"
 #include "containers/juce_Variant.h"
 #include "containers/juce_NamedValueSet.h"
-#include "javascript/juce_JSON.h"
+#include "json/juce_JSON.h"
 #include "containers/juce_DynamicObject.h"
 #include "containers/juce_HashMap.h"
 #include "containers/juce_FixedSizeFunction.h"
@@ -318,6 +318,7 @@ JUCE_END_IGNORE_WARNINGS_MSVC
 #include "files/juce_File.h"
 #include "files/juce_DirectoryIterator.h"
 #include "files/juce_RangedDirectoryIterator.h"
+#include "detail/juce_NativeFileHandle.h"
 #include "files/juce_FileInputStream.h"
 #include "files/juce_FileOutputStream.h"
 #include "files/juce_FileSearchPath.h"
@@ -327,10 +328,9 @@ JUCE_END_IGNORE_WARNINGS_MSVC
 #include "files/juce_WildcardFileFilter.h"
 #include "streams/juce_FileInputSource.h"
 #include "logging/juce_FileLogger.h"
-#include "javascript/juce_JSONUtils.h"
+#include "json/juce_JSONUtils.h"
 #include "serialisation/juce_Serialisation.h"
-#include "javascript/juce_JSONSerialisation.h"
-#include "javascript/juce_Javascript.h"
+#include "json/juce_JSONSerialisation.h"
 #include "maths/juce_BigInteger.h"
 #include "maths/juce_Expression.h"
 #include "maths/juce_Random.h"
@@ -373,6 +373,7 @@ JUCE_END_IGNORE_WARNINGS_MSVC
 #include "misc/juce_OptionsHelpers.h"
 
 #include "detail/juce_CallbackListenerList.h"
+#include "detail/juce_LruCache.h"
 
 #if JUCE_CORE_INCLUDE_OBJC_HELPERS && (JUCE_MAC || JUCE_IOS)
  #include "native/juce_CFHelpers_mac.h"

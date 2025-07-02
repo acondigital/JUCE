@@ -48,13 +48,6 @@ void Logger::outputDebugString (const String& text)
 
 static int findNumberOfPhysicalCores() noexcept
 {
-   #if JUCE_MINGW
-    // Not implemented in MinGW
-    jassertfalse;
-
-    return 1;
-   #else
-
     DWORD bufferSize = 0;
     GetLogicalProcessorInformation (nullptr, &bufferSize);
 
@@ -78,8 +71,6 @@ static int findNumberOfPhysicalCores() noexcept
     {
         return info.Relationship == RelationProcessorCore;
     });
-
-   #endif // JUCE_MINGW
 }
 
 //==============================================================================
@@ -89,7 +80,7 @@ static int findNumberOfPhysicalCores() noexcept
   #pragma intrinsic (__rdtsc)
  #endif
 
- #if JUCE_MINGW || JUCE_CLANG
+ #if JUCE_CLANG
 static void callCPUID (int result[4], uint32 type)
 {
   uint32 la = (uint32) result[0], lb = (uint32) result[1],
@@ -253,66 +244,47 @@ static DebugFlagsInitialiser debugFlagsInitialiser;
 #endif
 
 //==============================================================================
-#if JUCE_MINGW
- static uint64 getWindowsVersion()
- {
-     auto filename = _T ("kernel32.dll");
-     DWORD handle = 0;
+RTL_OSVERSIONINFOW getWindowsVersionInfo();
+RTL_OSVERSIONINFOW getWindowsVersionInfo()
+{
+    using RtlGetVersion = LONG (WINAPI*) (PRTL_OSVERSIONINFOW);
 
-     if (auto size = GetFileVersionInfoSize (filename, &handle))
-     {
-         HeapBlock<char> data (size);
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wcast-function-type")
 
-         if (GetFileVersionInfo (filename, handle, size, data))
-         {
-             VS_FIXEDFILEINFO* info = nullptr;
-             UINT verSize = 0;
+    static const auto rtlGetVersion = std::invoke ([]() -> RtlGetVersion
+    {
+        if (auto* moduleHandle = ::GetModuleHandleW (L"ntdll.dll"))
+            if (auto* result = (RtlGetVersion) ::GetProcAddress (moduleHandle, "RtlGetVersion"))
+                return result;
 
-             if (VerQueryValue (data, (LPCTSTR) _T ("\\"), (void**) &info, &verSize))
-                 if (size > 0 && info != nullptr && info->dwSignature == 0xfeef04bd)
-                     return ((uint64) info->dwFileVersionMS << 32) | (uint64) info->dwFileVersionLS;
-         }
-     }
+        // Unable to locate function! Please let the JUCE team know your current platform/environment
+        // so that we can fix this issue.
+        jassertfalse;
+        return {};
+    });
 
-     return 0;
- }
-#else
- RTL_OSVERSIONINFOW getWindowsVersionInfo();
- RTL_OSVERSIONINFOW getWindowsVersionInfo()
- {
-     RTL_OSVERSIONINFOW versionInfo = {};
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 
-     if (auto* moduleHandle = ::GetModuleHandleW (L"ntdll.dll"))
-     {
-         using RtlGetVersion = LONG (WINAPI*) (PRTL_OSVERSIONINFOW);
+    if (rtlGetVersion == nullptr)
+        return {};
 
-         if (auto* rtlGetVersion = (RtlGetVersion) ::GetProcAddress (moduleHandle, "RtlGetVersion"))
-         {
-             versionInfo.dwOSVersionInfoSize = sizeof (versionInfo);
-             LONG STATUS_SUCCESS = 0;
+    RTL_OSVERSIONINFOW versionInfo = {};
 
-             if (rtlGetVersion (&versionInfo) != STATUS_SUCCESS)
-                 versionInfo = {};
-         }
-     }
+    versionInfo.dwOSVersionInfoSize = sizeof (versionInfo);
+    LONG STATUS_SUCCESS = 0;
 
-     return versionInfo;
- }
-#endif
+    if (rtlGetVersion (&versionInfo) != STATUS_SUCCESS)
+        versionInfo = {};
+
+    return versionInfo;
+}
 
 SystemStats::OperatingSystemType SystemStats::getOperatingSystemType()
 {
-   #if JUCE_MINGW
-    const auto v = getWindowsVersion();
-    const auto major = (v >> 48) & 0xffff;
-    const auto minor = (v >> 32) & 0xffff;
-    const auto build = (v >> 16) & 0xffff;
-   #else
     const auto versionInfo = getWindowsVersionInfo();
     const auto major = versionInfo.dwMajorVersion;
     const auto minor = versionInfo.dwMinorVersion;
     const auto build = versionInfo.dwBuildNumber;
-   #endif
 
     jassert (major <= 10); // need to add support for new version!
 
@@ -373,18 +345,23 @@ bool SystemStats::isOperatingSystem64Bit()
    #if JUCE_64BIT
     return true;
    #else
-    typedef BOOL (WINAPI* LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+    using LPFN_ISWOW64PROCESS = BOOL (WINAPI*) (HANDLE, PBOOL);
 
-    const auto moduleHandle = GetModuleHandleA ("kernel32");
+    JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wcast-function-type")
 
-    if (moduleHandle == nullptr)
+    static const auto fnIsWow64Process = std::invoke ([]() -> LPFN_ISWOW64PROCESS
     {
-        jassertfalse;
-        return false;
-    }
+        if (auto* moduleHandle = ::GetModuleHandleA ("kernel32"))
+            if (auto* result = (LPFN_ISWOW64PROCESS) ::GetProcAddress (moduleHandle, "IsWow64Process"))
+                return result;
 
-    LPFN_ISWOW64PROCESS fnIsWow64Process
-        = (LPFN_ISWOW64PROCESS) GetProcAddress (moduleHandle, "IsWow64Process");
+        // Unable to locate function! Please let the JUCE team know your current platform/environment
+        // so that we can fix this issue.
+        jassertfalse;
+        return {};
+    });
+
+    JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 
     BOOL isWow64 = FALSE;
 
@@ -486,7 +463,7 @@ static int64 juce_getClockCycleCounter() noexcept
   #elif JUCE_ARM
    #if defined (_M_ARM)
     return __rdpmccntr64();
-   #elif defined (_M_ARM64)
+   #elif defined (_M_ARM64) || defined (_M_ARM64EC)
     return _ReadStatusReg (ARM64_PMCCNTR_EL0);
    #else
     #error Unknown arm architecture

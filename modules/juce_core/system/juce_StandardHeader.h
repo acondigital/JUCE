@@ -41,7 +41,7 @@
 */
 #define JUCE_MAJOR_VERSION      8
 #define JUCE_MINOR_VERSION      0
-#define JUCE_BUILDNUMBER        0
+#define JUCE_BUILDNUMBER        8
 
 /** Current JUCE version number.
 
@@ -81,6 +81,7 @@
 #include <sstream>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <typeindex>
 #include <unordered_map>
 #include <unordered_set>
@@ -127,11 +128,6 @@ JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4514 4245 4100)
 #endif
 
 JUCE_END_IGNORE_WARNINGS_MSVC
-
-#if JUCE_MINGW
- #include <cstring>
- #include <sys/types.h>
-#endif
 
 #if JUCE_ANDROID
  #include <cstring>

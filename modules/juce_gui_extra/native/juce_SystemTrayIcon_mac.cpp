@@ -35,7 +35,7 @@
 namespace juce
 {
 
-JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wdeprecated-declarations")
+JUCE_BEGIN_IGNORE_DEPRECATION_WARNINGS
 
 extern NSMenu* createNSMenu (const PopupMenu&, const String& name, int topLevelMenuId,
                              int topLevelIndex, bool addDelegate);
@@ -96,7 +96,7 @@ struct StatusItemContainer : public Timer
 };
 
 //==============================================================================
-struct API_AVAILABLE (macos (10.10)) ButtonBasedStatusItem  final : public StatusItemContainer
+struct ButtonBasedStatusItem  final : public StatusItemContainer
 {
     //==============================================================================
     ButtonBasedStatusItem (SystemTrayIconComponent& iconComp, const Image& im)
@@ -388,11 +388,8 @@ class SystemTrayIconComponent::Pimpl
 public:
     //==============================================================================
     Pimpl (SystemTrayIconComponent& iconComp, const Image& im)
+        : statusItemHolder (std::make_unique<ButtonBasedStatusItem> (iconComp, im))
     {
-        if (@available (macOS 10.10, *))
-            statusItemHolder = std::make_unique<ButtonBasedStatusItem> (iconComp, im);
-        else
-            statusItemHolder = std::make_unique<ViewBasedStatusItem> (iconComp, im);
     }
 
     //==============================================================================
@@ -449,6 +446,6 @@ void SystemTrayIconComponent::showDropdownMenu (const PopupMenu& menu)
         pimpl->statusItemHolder->showMenu (menu);
 }
 
-JUCE_END_IGNORE_WARNINGS_GCC_LIKE
+JUCE_END_IGNORE_DEPRECATION_WARNINGS
 
 } // namespace juce

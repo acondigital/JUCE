@@ -253,8 +253,7 @@ ValueTree PIPGenerator::createExporterChild (const Identifier& exporterIdentifie
 
     exporter.setProperty (Ids::targetFolder, "Builds/" + ProjectExporter::getTypeInfoForExporter (exporterIdentifier).targetFolder, nullptr);
 
-    const Identifier vsExporters[] { MSVCProjectExporterVC2017::getValueTreeTypeName(),
-                                     MSVCProjectExporterVC2019::getValueTreeTypeName(),
+    const Identifier vsExporters[] { MSVCProjectExporterVC2019::getValueTreeTypeName(),
                                      MSVCProjectExporterVC2022::getValueTreeTypeName() };
 
     if (isJUCEExample (pipFile) && std::find (std::begin (vsExporters), std::end (vsExporters), exporterIdentifier) != std::end (vsExporters))
@@ -508,7 +507,7 @@ Array<File> PIPGenerator::replaceRelativeIncludesAndGetFilesToMove()
             if (path.startsWith ("<") && path.endsWith (">"))
                 continue;
 
-            auto file = pipFile.getParentDirectory().getChildFile (path);
+            auto file = pipFile.getSiblingFile (path);
             files.add (file);
 
             line = line.replace (path, file.getFileName());
