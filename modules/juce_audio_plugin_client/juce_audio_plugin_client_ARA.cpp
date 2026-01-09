@@ -52,6 +52,14 @@ JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4100)
 #include <ARA_Library/Utilities/ARAPitchInterpretation.cpp>
 #include <ARA_Library/Utilities/ARAChannelFormat.cpp>
 
+// Acon Digital modification - Juce static lib support - ARA
+// These sources weren’t built into the JUCE module library because JucePlugin_Enable_ARA was disabled, so we compile them here.
+#include "juce_audio_processors/utilities/ARA/juce_ARA_utils.cpp"
+#include "juce_audio_processors/juce_audio_processors_ara.cpp"
+#include "juce_audio_formats/juce_audio_formats.h"
+#include "juce_audio_formats/format/juce_ARAAudioReaders.cpp"
+// END: Acon Digital modification - Juce static lib support - ARA
+
 JUCE_END_IGNORE_WARNINGS_MSVC
 JUCE_END_IGNORE_WARNINGS_GCC_LIKE
 
