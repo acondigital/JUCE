@@ -4661,11 +4661,10 @@ extern bool juce_isRunningInWine();
 ComponentPeer* Component::createNewPeer (int styleFlags, void* parentHWND)
 {
     // Acon Digital modification - Quick fix, may be fixed in a newer JUCE version (> 8.0.13).
-    static const bool useSoftwareRenderer = []
-    {
-        const auto host = File::getSpecialLocation (File::hostApplicationPath).getFileNameWithoutExtension();
-        return juce_isRunningInWine() || host.containsIgnoreCase ("Audition");
-    }();
+    static const auto useSoftwareRenderer = juce_isRunningInWine()
+                                         || File::getSpecialLocation (File::hostApplicationPath)
+                                                .getFileNameWithoutExtension()
+                                                .containsIgnoreCase ("Audition");
     const auto renderer = useSoftwareRenderer ? 0 : 1;
     // Acon Digital modification - End of modification
 
