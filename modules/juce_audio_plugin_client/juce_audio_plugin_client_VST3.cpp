@@ -2302,7 +2302,22 @@ private:
 
             void createEditor (AudioProcessor& plugin)
             {
-                pluginEditor.reset (plugin.createEditorAndMakeActive());
+                // Acon Digital modification - Quick fix, may be fixed in a newer JUCE version (> 8.0.13).
+                if (detail::PluginUtilities::getHostType().isPremiere())
+                    if (auto* active = plugin.getActiveEditor())
+                    {
+                        auto* preflight = dynamic_cast<ContentWrapperComponent*> (active->getParentComponent());
+                        if (preflight != nullptr && preflight->pluginEditor.get() == active)
+                        {
+                            active->setHostContext (nullptr);
+                            preflight->editorHostContext.reset();
+                            pluginEditor = std::move (preflight->pluginEditor);
+                        }
+                    }
+
+                if (pluginEditor == nullptr)
+                    pluginEditor.reset (plugin.createEditorAndMakeActive());
+                // Acon Digital modification - End of modification
 
                #if JucePlugin_Enable_ARA
                 jassert (pluginEditor->getARAClientExtensions() != nullptr);
