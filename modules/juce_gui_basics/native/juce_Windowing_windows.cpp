@@ -69,8 +69,9 @@ void* getUser32Function (const char*);
 
 #if JUCE_DEBUG
  int numActiveScopedDpiAwarenessDisablers = 0;
- extern HWND juce_messageWindowHandle;
 #endif
+
+extern HWND juce_messageWindowHandle;
 
 struct ScopedDeviceContext
 {
@@ -334,62 +335,12 @@ static void checkForPointerAPI()
 }
 
 //==============================================================================
-static bool setDPIAwareness()
-{
-    static const auto didSetDpiAwareness = std::invoke ([]
-    {
-        constexpr auto shcore = "SHCore.dll";
-        LoadLibraryA (shcore);
-
-        const auto shcoreModule = GetModuleHandleA (shcore);
-
-        if (shcoreModule == nullptr)
-            return false;
-
-        using SetProcessDpiAwarenessContextFunc = BOOL (WINAPI*) (DPI_AWARENESS_CONTEXT);
-        const auto setProcessDpiAwarenessContext = (SetProcessDpiAwarenessContextFunc) GetProcAddress (shcoreModule, "SetProcessDpiAwarenessContext");
-
-        if (setProcessDpiAwarenessContext != nullptr
-            && setProcessDpiAwarenessContext (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
-            return true;
-
-        if (SUCCEEDED (SetProcessDpiAwareness (PROCESS_PER_MONITOR_DPI_AWARE)))
-            return true;
-
-        if (SUCCEEDED (SetProcessDpiAwareness (PROCESS_SYSTEM_DPI_AWARE)))
-            return true;
-
-        return SetProcessDPIAware() != 0;
-    });
-
-    return didSetDpiAwareness;
-}
-
-static bool isPerMonitorDPIAwareProcess()
+static inline bool isPerMonitorDPIAwareWindow ([[maybe_unused]] HWND nativeWindow)
 {
    #if ! JUCE_WIN_PER_MONITOR_DPI_AWARE
     return false;
    #else
-    static bool dpiAware = std::invoke ([]
-    {
-        setDPIAwareness();
-
-        PROCESS_DPI_AWARENESS context{};
-        GetProcessDpiAwareness (nullptr, &context);
-
-        return context == PROCESS_PER_MONITOR_DPI_AWARE;
-    });
-
-    return dpiAware;
-   #endif
-}
-
-static bool isPerMonitorDPIAwareWindow ([[maybe_unused]] HWND nativeWindow)
-{
-   #if ! JUCE_WIN_PER_MONITOR_DPI_AWARE
-    return false;
-   #else
-    setDPIAwareness();
+    HiddenMessageWindow::setDPIAwareness();
 
     return (GetAwarenessFromDpiAwarenessContext (GetWindowDpiAwarenessContext (nativeWindow))
               == DPI_AWARENESS_PER_MONITOR_AWARE);
@@ -401,7 +352,7 @@ static bool isPerMonitorDPIAwareThread()
    #if ! JUCE_WIN_PER_MONITOR_DPI_AWARE
     return false;
    #else
-    setDPIAwareness();
+    HiddenMessageWindow::setDPIAwareness();
 
     return (GetAwarenessFromDpiAwarenessContext (GetThreadDpiAwarenessContext())
               == DPI_AWARENESS_PER_MONITOR_AWARE);
@@ -410,7 +361,7 @@ static bool isPerMonitorDPIAwareThread()
 
 static double getGlobalDPI()
 {
-    setDPIAwareness();
+    HiddenMessageWindow::setDPIAwareness();
 
     ScopedDeviceContext deviceContext { nullptr };
     return (GetDeviceCaps (deviceContext.dc, LOGPIXELSX) + GetDeviceCaps (deviceContext.dc, LOGPIXELSY)) / 2.0;
@@ -467,19 +418,25 @@ class ScopedThreadDPIAwarenessSetter::NativeImpl
 {
 public:
     explicit NativeImpl (HWND nativeWindow [[maybe_unused]])
+        : oldContext (std::invoke ([&]() -> DPI_AWARENESS_CONTEXT
+          {
+             #if JUCE_WIN_PER_MONITOR_DPI_AWARE
+              auto dpiAwareWindow = (GetAwarenessFromDpiAwarenessContext (GetWindowDpiAwarenessContext (nativeWindow))
+                                     == DPI_AWARENESS_PER_MONITOR_AWARE);
+
+              auto dpiAwareThread = (GetAwarenessFromDpiAwarenessContext (GetThreadDpiAwarenessContext())
+                                     == DPI_AWARENESS_PER_MONITOR_AWARE);
+
+              if (dpiAwareWindow && ! dpiAwareThread)
+                  return SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+
+              if (! dpiAwareWindow && dpiAwareThread)
+                  return SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_UNAWARE);
+             #endif
+
+              return nullptr;
+          }))
     {
-       #if JUCE_WIN_PER_MONITOR_DPI_AWARE
-        auto dpiAwareWindow = (GetAwarenessFromDpiAwarenessContext (GetWindowDpiAwarenessContext (nativeWindow))
-                               == DPI_AWARENESS_PER_MONITOR_AWARE);
-
-        auto dpiAwareThread = (GetAwarenessFromDpiAwarenessContext (GetThreadDpiAwarenessContext())
-                               == DPI_AWARENESS_PER_MONITOR_AWARE);
-
-        if (dpiAwareWindow && ! dpiAwareThread)
-            oldContext = SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
-        else if (! dpiAwareWindow && dpiAwareThread)
-            oldContext = SetThreadDpiAwarenessContext (DPI_AWARENESS_CONTEXT_UNAWARE);
-       #endif
     }
 
     ~NativeImpl()
@@ -571,10 +528,7 @@ RTL_OSVERSIONINFOW getWindowsVersionInfo();
 
 double Desktop::getDefaultMasterScale()
 {
-    if (isPerMonitorDPIAwareProcess())
-        return 1.0;
-
-    return getGlobalDPI() / USER_DEFAULT_SCREEN_DPI;
+    return 1.0;
 }
 
 bool Desktop::canUseSemiTransparentWindows() noexcept
@@ -1419,10 +1373,7 @@ public:
 
         auto localBounds = D2DUtilities::toRectangle (getWindowClientRect (hwnd));
 
-        if (isPerMonitorDPIAwareWindow (hwnd))
-            return (localBounds.toDouble() / getPlatformScaleFactor()).toNearestInt();
-
-        return localBounds;
+        return (localBounds.toDouble() / getPlatformScaleFactor()).toNearestInt();
     }
 
     Point<float> localToMultimonitor (Point<float> x) override
@@ -1969,9 +1920,6 @@ public:
        #if ! JUCE_WIN_PER_MONITOR_DPI_AWARE
         return 1.0;
        #else
-        if (! isPerMonitorDPIAwareWindow (hwnd))
-            return 1.0;
-
         if (auto* parentHWND = GetParent (hwnd))
         {
             if (auto* parentPeer = getOwnerOfWindow (parentHWND))
@@ -2295,10 +2243,8 @@ private:
             if (canUseMultiTouch())
                 registerTouchWindow (hwnd, 0);
 
-            setDPIAwareness();
-
-            if (isPerMonitorDPIAwareThread())
-                scaleFactor = getScaleFactorForWindow (hwnd);
+            HiddenMessageWindow::setDPIAwareness();
+            scaleFactor = getScaleFactorForWindow (hwnd);
 
             setMessageFilter();
             checkForPointerAPI();
@@ -4820,22 +4766,15 @@ private:
 
         const auto hdc = nativeBitmap->getHDC();
 
-        if (isPerMonitorDPIAwareProcess())
-        {
-            auto scale = getScaleFactorForWindow (hwnd);
-            auto prevStretchMode = SetStretchBltMode (hdc, HALFTONE);
-            SetBrushOrgEx (hdc, 0, 0, nullptr);
+        auto scale = getScaleFactorForWindow (hwnd);
+        auto prevStretchMode = SetStretchBltMode (hdc, HALFTONE);
+        SetBrushOrgEx (hdc, 0, 0, nullptr);
 
-            StretchBlt (hdc, 0, 0, w, h,
-                        deviceContext.dc, 0, 0, roundToInt (w * scale), roundToInt (h * scale),
-                        SRCCOPY);
+        StretchBlt (hdc, 0, 0, w, h,
+                    deviceContext.dc, 0, 0, roundToInt (w * scale), roundToInt (h * scale),
+                    SRCCOPY);
 
-            SetStretchBltMode (hdc, prevStretchMode);
-        }
-        else
-        {
-            BitBlt (hdc, 0, 0, w, h, deviceContext.dc, 0, 0, SRCCOPY);
-        }
+        SetStretchBltMode (hdc, prevStretchMode);
 
         return SoftwareImageType().convert (bitmap);
     }
@@ -5500,6 +5439,7 @@ void HWNDComponentPeer::setCurrentRenderingEngine (int e)
         // can only be created once per window.
         renderContext.reset();
         renderContext = contextDescriptors[e].construct (*this);
+        InvalidateRect (hwnd, nullptr, TRUE);
     }
 }
 
@@ -5621,25 +5561,21 @@ bool detail::MouseInputSourceList::canUseTouch() const
 
 Point<float> MouseInputSource::getCurrentRawMousePosition()
 {
+    const ScopedThreadDPIAwarenessSetter::NativeImpl scope { juce_messageWindowHandle };
+
     POINT mousePos;
     GetCursorPos (&mousePos);
 
     const auto p = D2DUtilities::toPoint (mousePos).toFloat();
-
-    if (isPerMonitorDPIAwareThread())
-        return detail::ScalingHelpers::convertPhysicalScreenPointToLogical (p);
-
-    return p;
+    return detail::ScalingHelpers::convertPhysicalScreenPointToLogical (p);
 }
 
 void MouseInputSource::setRawMousePosition (Point<float> newPosition)
 {
-   #if JUCE_WIN_PER_MONITOR_DPI_AWARE
-    if (isPerMonitorDPIAwareThread())
-        newPosition = detail::ScalingHelpers::convertLogicalScreenPointToPhysical (newPosition);
-   #endif
+    const ScopedThreadDPIAwarenessSetter::NativeImpl scope { juce_messageWindowHandle };
 
-    const auto point = D2DUtilities::toPOINT (newPosition.roundToInt());
+    const auto scaled = detail::ScalingHelpers::convertLogicalScreenPointToPhysical (newPosition);
+    const auto point = D2DUtilities::toPOINT (scaled.roundToInt());
     SetCursorPos (point.x, point.y);
 }
 
@@ -5846,7 +5782,7 @@ static BOOL CALLBACK enumMonitorsProc (HMONITOR hm, HDC, LPRECT, LPARAM userInfo
 
 void Displays::findDisplays (const Desktop& desktop)
 {
-    setDPIAwareness();
+    HiddenMessageWindow::setDPIAwareness();
 
     Array<MonitorInfo> monitors;
     EnumDisplayMonitors (nullptr, nullptr, &enumMonitorsProc, (LPARAM) &monitors);
@@ -5891,17 +5827,15 @@ void Displays::findDisplays (const Desktop& desktop)
     }
 
    #if JUCE_WIN_PER_MONITOR_DPI_AWARE
-    if (isPerMonitorDPIAwareThread())
-        updateToLogical();
-    else
-   #endif
+    HiddenMessageWindow::setDPIAwareness();
+    updateToLogical();
+   #else
+    for (auto& d : displays)
     {
-        for (auto& d : displays)
-        {
-            d.logicalBounds /= masterScale;
-            d.userBounds    /= masterScale;
-        }
+        d.logicalBounds /= masterScale;
+        d.userBounds    /= masterScale;
     }
+   #endif
 }
 
 //==============================================================================

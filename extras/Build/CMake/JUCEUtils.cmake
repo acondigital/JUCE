@@ -261,12 +261,15 @@ endfunction()
 function(_juce_link_optional_libraries target)
     if((CMAKE_SYSTEM_NAME STREQUAL "Linux") OR (CMAKE_SYSTEM_NAME MATCHES ".*BSD"))
         get_target_property(needs_curl ${target} JUCE_NEEDS_CURL)
+        get_target_property(needs_browser ${target} JUCE_NEEDS_WEB_BROWSER)
+
+        target_compile_definitions(${target} PRIVATE
+            JUCE_USE_CURL=$<BOOL:${needs_curl}>
+            JUCE_WEB_BROWSER=$<BOOL:${needs_browser}>)
 
         if(needs_curl)
             target_link_libraries(${target} PRIVATE juce::pkgconfig_JUCE_CURL_LINUX_DEPS)
         endif()
-
-        get_target_property(needs_browser ${target} JUCE_NEEDS_WEB_BROWSER)
 
         if(needs_browser)
             target_link_libraries(${target} PRIVATE juce::pkgconfig_JUCE_BROWSER_LINUX_DEPS)
@@ -279,6 +282,9 @@ function(_juce_link_optional_libraries target)
         endif()
     elseif(APPLE)
         get_target_property(needs_storekit ${target} JUCE_NEEDS_STORE_KIT)
+
+        target_compile_definitions(${target} PRIVATE
+            JUCE_IN_APP_PURCHASES=$<BOOL:${needs_storekit}>)
 
         if(needs_storekit)
             _juce_link_frameworks("${target}" PRIVATE StoreKit)
@@ -1083,7 +1089,7 @@ function(_juce_add_vst3_manifest_helper_target shared_code_target out_target out
     endif()
 
     get_target_property(juce_library_code "${shared_code_target}" JUCE_GENERATED_SOURCES_DIRECTORY)
-    set(build_dir "${juce_library_code}/vst3_helper")
+    set(build_dir "${CMAKE_BINARY_DIR}/vst3_helpers/${shared_code_target}")
     set(helper_name "vst3_helper")
 
     set(shared_defs_file "${build_dir}/shared_defs_$<CONFIG>.txt")
@@ -1093,10 +1099,6 @@ function(_juce_add_vst3_manifest_helper_target shared_code_target out_target out
     file(GENERATE OUTPUT "${shared_incs_file}" CONTENT "$<TARGET_PROPERTY:${shared_code_target},INCLUDE_DIRECTORIES>")
 
     set(PASSTHROUGH_ARGS "")
-
-    if(CMAKE_C_COMPILER)
-        list(APPEND PASSTHROUGH_ARGS "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}")
-    endif()
 
     if(CMAKE_CXX_COMPILER)
         list(APPEND PASSTHROUGH_ARGS "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
@@ -1604,6 +1606,7 @@ function(_juce_configure_plugin_targets target)
         JucePlugin_VersionCode=${project_version_hex}
         JucePlugin_VSTUniqueID=JucePlugin_PluginCode
         JucePlugin_VSTCategory=$<TARGET_PROPERTY:${target},JUCE_VST2_CATEGORY>
+        JucePlugin_LV2PluginClass=$<TARGET_PROPERTY:${target},JUCE_LV2_PLUGIN_CLASS>
         JucePlugin_Vst3Category="${vst3_category_string}"
         JucePlugin_AUMainType=$<TARGET_PROPERTY:${target},JUCE_AU_MAIN_TYPE_CODE>
         JucePlugin_AUSubType=JucePlugin_PluginCode
@@ -1846,6 +1849,13 @@ function(_juce_set_fallback_properties target)
         _juce_set_property_if_not_set(${target} VST2_CATEGORY kPlugCategEffect)
     endif()
 
+    # LV2 Plugin Class
+    if(is_synth)
+        _juce_set_property_if_not_set(${target} LV2_PLUGIN_CLASS InstrumentPlugin)
+    endif()
+
+    _juce_set_property_if_not_set(${target} LV2_PLUGIN_CLASS Plugin)
+
     get_target_property(is_midi_effect ${target} JUCE_IS_MIDI_EFFECT)
     get_target_property(needs_midi_input ${target} JUCE_NEEDS_MIDI_INPUT)
 
@@ -2068,6 +2078,7 @@ function(_juce_initialise_target target)
         VST_NUM_MIDI_INS
         VST_NUM_MIDI_OUTS
         VST2_CATEGORY
+        LV2_PLUGIN_CLASS
         AU_MAIN_TYPE
         AU_EXPORT_PREFIX
         AU_SANDBOX_SAFE
