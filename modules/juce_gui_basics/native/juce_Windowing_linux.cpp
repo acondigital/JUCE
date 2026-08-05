@@ -418,6 +418,7 @@ public:
             XWindowSystem::getInstance()->updateConstraints (windowH);
 
         physicalBounds = XWindowSystem::getInstance()->getWindowBounds (windowH, parentWindow);
+        fullScreen = XWindowSystem::getInstance()->isFullScreen (windowH);
         updateScaleFactorFromNewBounds (physicalBounds, true);
 
         updateVBlankTimer();
@@ -824,7 +825,8 @@ public:
     ~PlatformSpecificHandle()
     {
         if (cursorHandle != Cursor{})
-            XWindowSystem::getInstance()->deleteMouseCursor (cursorHandle);
+            if (auto* windowSystem = XWindowSystem::getInstanceWithoutCreating())
+                windowSystem->deleteMouseCursor (cursorHandle);
     }
 
     static void showInWindow (PlatformSpecificHandle* handle, ComponentPeer* peer)
