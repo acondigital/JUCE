@@ -1218,14 +1218,15 @@ public:
 
         updateCurrentMonitorAndRefreshVBlankDispatcher (ForceRefreshDispatcher::yes);
 
-        if (parentToAddTo != nullptr)
-        {
-            monitorUpdateTimer.emplace ([this]
-                                        {
-                                            updateCurrentMonitorAndRefreshVBlankDispatcher (ForceRefreshDispatcher::yes);
-                                            monitorUpdateTimer->startTimer (1000);
-                                        });
-        }
+        // Acon Digital modification - the monitor update timer was emplaced but never started
+        // (TimedCallback's constructor doesn't start the timer, and the only startTimer() call was
+        // inside the callback that therefore never ran), so a peer that failed to attach to a vblank
+        // thread never recovered and its window stopped repainting altogether. Run it for every peer
+        // rather than only for parented ones: any window can be created or moved while it doesn't
+        // intersect a display, and only this timer gets it re-attached afterwards.
+        monitorUpdateTimer.emplace ([this] { updateCurrentMonitorAndRefreshVBlankDispatcher(); });
+        monitorUpdateTimer->startTimer (1000);
+        // Acon Digital modification - End of modification
 
         suspendResumeRegistration = ScopedSuspendResumeNotificationRegistration { hwnd };
 
@@ -3309,10 +3310,48 @@ private:
 
     void updateCurrentMonitorAndRefreshVBlankDispatcher (ForceRefreshDispatcher force = ForceRefreshDispatcher::no)
     {
+        // Acon Digital modification - a window that doesn't intersect any display (a peer registering
+        // before Component::addToDesktop has applied its real bounds, a window dragged off-screen, a
+        // minimised window) resolved to a null monitor, and passing null to updateDisplay() detaches
+        // the peer from its vblank thread. Since the monitor is only acted on when it changes, every
+        // later null -> null check is a no-op and the peer stays detached, so the window never
+        // repaints again. Attach to the nearest display instead of detaching.
         auto monitor = MonitorFromWindow (hwnd, MONITOR_DEFAULTTONULL);
 
-        if (std::exchange (currentMonitor, monitor) != monitor || force == ForceRefreshDispatcher::yes)
-            VBlankDispatcher::getInstance()->updateDisplay (*this, currentMonitor);
+        if (monitor == nullptr)
+            monitor = MonitorFromWindow (hwnd, MONITOR_DEFAULTTONEAREST);
+        // Acon Digital modification - End of modification
+
+        const auto previousMonitor = std::exchange (currentMonitor, monitor);
+
+        auto* dispatcher = VBlankDispatcher::getInstance();
+
+        // Acon Digital modification - also refresh when this peer isn't attached to any vblank
+        // thread. updateDisplay() can fail to attach it (no enumerated DXGI output drives the
+        // monitor, typically because the cached adapter list went stale), and reacting only to a
+        // *change* of monitor meant nothing ever retried afterwards, so the window stayed frozen for
+        // good. This is what makes the periodic call from monitorUpdateTimer a real retry.
+        const auto isRegistered = dispatcher->isRegistered (*this);
+
+        if (previousMonitor != monitor || force == ForceRefreshDispatcher::yes || ! isRegistered)
+        {
+            // All painting is gated on a vblank callback arriving, so a peer that ends up on the
+            // wrong monitor, or on none, silently stops repainting. Log it so that never has to be
+            // diagnosed from scratch again.
+            const auto isRetry = previousMonitor == monitor && ! isRegistered;
+
+            if (previousMonitor != monitor || isRetry)
+            {
+                DBG ("VBlank registration: \"" << component.getName() << "\" monitor "
+                     << String::toHexString ((pointer_sized_int) previousMonitor) << " -> "
+                     << String::toHexString ((pointer_sized_int) monitor)
+                     << (isRetry ? " (RETRY - peer was not attached to any vblank thread)" : "")
+                     << (monitor == nullptr ? " (DETACHED - this window will stop repainting)" : ""));
+            }
+
+            dispatcher->updateDisplay (*this, currentMonitor);
+        }
+        // Acon Digital modification - End of modification
     }
 
     bool handlePositionChanged()
