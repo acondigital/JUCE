@@ -703,10 +703,17 @@ void AudioDeviceManager::scanDevicesIfNeeded()
     {
         listNeedsScanning = false;
 
+        // Acon Digital modification: createDeviceTypesIfNeeded() already scans every type it
+        // creates, so only rescan when the types were already there. Scanning twice on the very
+        // first call costs hundreds of milliseconds on Windows, where it means enumerating (and,
+        // for ASIO, loading) every installed driver a second time.
+        const auto deviceTypesAlreadyExisted = availableDeviceTypes.size() > 0;
+
         createDeviceTypesIfNeeded();
 
-        for (auto* type : availableDeviceTypes)
-            type->scanForDevices();
+        if (deviceTypesAlreadyExisted)
+            for (auto* type : availableDeviceTypes)
+                type->scanForDevices();
     }
 }
 
@@ -817,8 +824,19 @@ String AudioDeviceManager::setAudioDeviceSetup (const AudioDeviceSetup& newSetup
 
     if (newSetup != currentSetup)
         sendChangeMessage();
-    else if (currentAudioDevice != nullptr)
+    else if (currentAudioDevice != nullptr && currentAudioDevice->isOpen())
+    {
+        // Acon Digital modification: the setup is unchanged, so there is no need to re-open the
+        // device - but a caller may have stopped it in order to change the format of the audio it
+        // is about to play, so make sure it ends up running again rather than silently staying
+        // stopped. Restarting also gives the callback the audioDeviceAboutToStart() it needs to
+        // rebuild its converters. A device that is no longer open falls through to the re-open
+        // path below.
+        if (! currentAudioDevice->isPlaying())
+            currentAudioDevice->start (callbackHandler->getAudioIODeviceCallback());
+
         return {};
+    }
 
     stopDevice();
 
