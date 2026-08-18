@@ -1144,7 +1144,75 @@ namespace DisplayHelpers
         return 96.0;
     }
 
-    static double getDisplayScale (const String& name, double dpi)
+    // Guards against a garbage Xft.dpi resource rendering the UI unusable.
+    static constexpr double minDesktopScale = 0.5, maxDesktopScale = 8.0;
+
+    // KDE Plasma, xrdb and most display managers publish the desktop's DPI as an Xft.dpi X
+    // resource. RESOURCE_MANAGER on the root window holds what "xrdb -query" prints.
+    static double getXftDpiFromResourceManager (::Display* display)
+    {
+        if (display == nullptr)
+            return 0.0;
+
+        const auto root = X11Symbols::getInstance()->xRootWindow (display, X11Symbols::getInstance()->xDefaultScreen (display));
+
+        XWindowSystemUtilities::GetXProperty prop (display, root, XA_RESOURCE_MANAGER, 0L, 100000, false, XA_STRING);
+
+        if (! prop.success || prop.actualType != XA_STRING || prop.actualFormat != 8)
+            return 0.0;
+
+        for (const auto& line : StringArray::fromLines (String ((const char*) prop.data, (int) prop.numItems)))
+            if (line.startsWithIgnoreCase ("Xft.dpi:"))
+                return line.fromFirstOccurrenceOf (":", false, false).trim().getDoubleValue();
+
+        return 0.0;
+    }
+
+    // The desktop's Xft DPI is the only source that carries fractional and text scaling, and is
+    // what GTK, Qt and Chromium scale by on X11. Returns 0.0 when the desktop publishes nothing.
+    static double getScaleFromXftDpi (::Display* display)
+    {
+        double xftDpi = 0.0;
+
+        if (auto* xSettings = XWindowSystem::getInstance()->getXSettings())
+        {
+            const auto xftDpiSetting = xSettings->getSetting (XWindowSystem::getXftDpiSettingName());
+
+            if (xftDpiSetting.isValid() && xftDpiSetting.integerValue > 0)
+                xftDpi = (double) xftDpiSetting.integerValue / 1024.0;  // XSETTINGS stores the DPI scaled by 1024
+        }
+
+        if (xftDpi <= 0.0)
+            xftDpi = getXftDpiFromResourceManager (display);
+
+        const auto scale = xftDpi / 96.0;
+
+        return (scale >= minDesktopScale && scale <= maxDesktopScale) ? scale : 0.0;
+    }
+
+    // GNOME's text scaling slider. The integer window scaling sources below do not account for
+    // it, so it has to be folded in by hand; an Xft DPI already includes it.
+    static double getTextScalingFactor()
+    {
+        ChildProcess gsettings;
+
+        if (File ("/usr/bin/gsettings").existsAsFile()
+            && gsettings.start ("/usr/bin/gsettings get org.gnome.desktop.interface text-scaling-factor", ChildProcess::wantStdOut))
+        {
+            if (gsettings.waitForProcessToFinish (200))
+            {
+                const auto textScale = gsettings.readAllProcessOutput().trim().getDoubleValue();
+
+                if (textScale >= minDesktopScale && textScale <= maxDesktopScale)
+                    return textScale;
+            }
+        }
+
+        return 1.0;
+    }
+
+    // The integer window scale the desktop asks toolkits to render at. Returns 0.0 when unset.
+    static double getWindowScalingFactor (const String& name)
     {
         if (auto* xSettings = XWindowSystem::getInstance()->getXSettings())
         {
@@ -1206,19 +1274,37 @@ namespace DisplayHelpers
                     {
                         auto scaleFactor = gsettingsOutput[1].getDoubleValue();
 
+                        // Modern GNOME prints "uint32 0" here, meaning "unset" - fall through to
+                        // the other sources rather than reporting an unscaled display.
                         if (scaleFactor > 0.0)
                             return scaleFactor;
-
-                        return 1.0;
                     }
                 }
             }
         }
 
-        // If no scale factor is set by GNOME or Ubuntu then calculate from monitor dpi
-        // We use the same approach as chromium which simply divides the dpi by 96
-        // and then rounds the result
-        return round (dpi / 96.0);
+        return 0.0;
+    }
+
+    static double getDisplayScale (::Display* display, const String& name, double dpi)
+    {
+        // GNOME folds both the window scale and the text scaling factor into Xft/DPI, whereas
+        // XFCE keeps the two apart, so take whichever of the two axes is larger. Note that an
+        // Xft DPI is global rather than per-output: on a mixed-DPI multi-monitor X11 setup every
+        // display ends up with the same scale, as it does under GTK and Qt.
+        const auto xftScale = getScaleFromXftDpi (display);
+
+        auto windowScale = getWindowScalingFactor (name);
+
+        if (windowScale > 0.0 && xftScale <= 0.0)
+            windowScale *= getTextScalingFactor();
+
+        if (xftScale > 0.0 || windowScale > 0.0)
+            return jmax (xftScale, windowScale);
+
+        // Nothing is configured, so calculate from monitor dpi. We use the same approach as
+        // chromium which simply divides the dpi by 96 and then rounds the result.
+        return round (dpi / 96.0) * getTextScalingFactor();
     }
 
    #if JUCE_USE_XINERAMA
@@ -2669,7 +2755,7 @@ Array<Displays::Display> XWindowSystem::findDisplays (float masterScale) const
                                             d.dpi = ((static_cast<double> (crtc->width)  * 25.4 * 0.5) / static_cast<double> (output->mm_width))
                                                   + ((static_cast<double> (crtc->height) * 25.4 * 0.5) / static_cast<double> (output->mm_height));
 
-                                        auto scale = DisplayHelpers::getDisplayScale (output->name, d.dpi);
+                                        auto scale = DisplayHelpers::getDisplayScale (display, output->name, d.dpi);
                                         scale = scale <= 0.1 ? 1.0 : scale;
 
                                         d.scale = masterScale * scale;

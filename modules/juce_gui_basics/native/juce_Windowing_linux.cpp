@@ -609,7 +609,7 @@ private:
     {
         static StringArray possibleSettings { XWindowSystem::getWindowScalingFactorSettingName(),
                                               "Gdk/UnscaledDPI",
-                                              "Xft/DPI" };
+                                              XWindowSystem::getXftDpiSettingName() };
 
         if (possibleSettings.contains (settingThatHasChanged.name))
             forceDisplayUpdate();

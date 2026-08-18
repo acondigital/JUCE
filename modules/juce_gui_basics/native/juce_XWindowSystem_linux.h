@@ -256,6 +256,7 @@ public:
                                  ResizableBorderComponent::Zone zone);
 
     static String getWindowScalingFactorSettingName()  { return "Gdk/WindowScalingFactor"; }
+    static String getXftDpiSettingName()               { return "Xft/DPI"; }
     static String getThemeNameSettingName()            { return "Net/ThemeName"; }
 
     //==============================================================================
