@@ -3621,6 +3621,13 @@ private:
                 return 0;
 
             case HTCAPTION:
+                // A caption click on an inactive window is what activates and raises it, and that
+                // is done by DefWindowProc. Swallowing the click here would leave the window in
+                // the background without keyboard focus until the mouse moved, so hand this one
+                // straight to the system.
+                if (GetForegroundWindow() != hwnd)
+                    return {};
+
                 // The default click-in-caption handler appears to block the message loop until a
                 // mouse move is detected, which prevents the view from repainting. We want to keep
                 // painting, so log the click ourselves and only defer to DefWindowProc once the
@@ -4017,7 +4024,16 @@ private:
                 if (! component.getMouseClickGrabsKeyboardFocus())
                     return MA_NOACTIVATE;
 
-                mouseActivateFlags |= gotMouseActivate;
+                // Only a click in the client area is followed by the mouse event that the
+                // postponed focus update waits for. Clicking the title bar or a resize border
+                // sends non-client messages instead, so postponing the update there would leave
+                // the window without keyboard focus until the user clicked inside it.
+                const auto hitTest = message == WM_POINTERACTIVATE ? HIWORD (wParam)
+                                                                   : LOWORD (lParam);
+
+                if (hitTest == HTCLIENT)
+                    mouseActivateFlags |= gotMouseActivate;
+
                 break;
             }
 
@@ -4153,6 +4169,10 @@ private:
             }
 
             case WM_NCLBUTTONUP:
+                // A caption click that was released without moving must not be left pending, or
+                // the next mouse move over the frame hands a stale click to DefWindowProc.
+                captionMouseDown.reset();
+
                 switch (wParam)
                 {
                     case HTCLOSE:
