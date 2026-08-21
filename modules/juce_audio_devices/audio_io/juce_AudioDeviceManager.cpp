@@ -832,8 +832,12 @@ String AudioDeviceManager::setAudioDeviceSetup (const AudioDeviceSetup& newSetup
         // stopped. Restarting also gives the callback the audioDeviceAboutToStart() it needs to
         // rebuild its converters. A device that is no longer open falls through to the re-open
         // path below.
-        if (! currentAudioDevice->isPlaying())
-            currentAudioDevice->start (callbackHandler->getAudioIODeviceCallback());
+        //
+        // Started unconditionally: stop() clears the callback but leaves the interrupt running,
+        // clearing the playing flag only when it also tears the IOProc down. isPlaying() can
+        // therefore be true with no callback attached, which left the device running silent.
+        // start() is idempotent - it reattaches a callback only when there is none.
+        currentAudioDevice->start (callbackHandler->getAudioIODeviceCallback());
 
         return {};
     }
