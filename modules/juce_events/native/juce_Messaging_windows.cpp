@@ -227,23 +227,53 @@ private:
 
     void dispatchMessages()
     {
-        ReferenceCountedArray<MessageManager::MessageBase> messagesToDispatch;
+        // Acon Digital modification - this used to swap the whole queue into a local array and walk
+        // it. Dispatching a message can enter a modal loop - an ApplicationCommandTarget command
+        // opening a dialog, a button handler calling runModalLoop() - and that loop does not return
+        // until the dialog closes. Every message further along the batch had already been taken out
+        // of the live queue by the swap, so the nested message pump could not reach it, and it sat
+        // undelivered for the whole life of the dialog. Confirmed by stack trace: a VBlankThread
+        // AsyncUpdater message stranded behind a CommandMessage, which stopped repainting for the
+        // entire process - every window on the display - while timers, posted afterwards into the
+        // now-empty queue, carried on as normal and made it look as though the queue was flowing.
+        //
+        // Take one message at a time from the live queue instead, so anything still queued stays
+        // reachable from a nested pump, and keep a wake-up posted while the queue is non-empty so
+        // that pump knows to come back for it. That preserves postMessage()'s invariant that a
+        // non-empty queue always has exactly one wake-up outstanding.
+        //
+        // Still bounded by however many were queued on entry, so this returns to the Win32 pump just
+        // as the batch version did rather than draining a fast producer indefinitely. Anything that
+        // arrives meanwhile is left queued with a wake-up posted for it.
+        int numToDispatch = 0;
 
         {
             const ScopedLock sl (lock);
-
-            if (messageQueue.isEmpty())
-                return;
-
-            messagesToDispatch.swapWith (messageQueue);
+            numToDispatch = messageQueue.size();
         }
 
-        for (int i = 0; i < messagesToDispatch.size(); ++i)
+        for (int i = 0; i < numToDispatch; ++i)
         {
-            auto message = messagesToDispatch.getUnchecked (i);
+            MessageManager::MessageBase::Ptr message;
+            bool moreMessagesQueued = false;
+
+            {
+                const ScopedLock sl (lock);
+
+                if (messageQueue.isEmpty())
+                    return;
+
+                message = messageQueue.removeAndReturn (0);
+                moreMessagesQueued = ! messageQueue.isEmpty();
+            }
+
+            if (moreMessagesQueued)
+                PostMessage (juce_messageWindowHandle, customMessageID, 0, 0);
+
             message->incReferenceCount();
             dispatchMessage (message.get());
         }
+        // Acon Digital modification - End of modification
     }
 
     //==============================================================================

@@ -132,15 +132,20 @@ private:
                 if (now - lastVBlankEvent.exchange (now) < 1.0)
                     sleep (1);
 
-                const auto stateToRead = state.fetch_or (flagPaintPending);
-
-                if ((stateToRead & flagExit) != 0)
+                if ((state.load() & flagExit) != 0)
                     return;
 
-                if ((stateToRead & flagPaintPending) != 0)
-                    continue;
-
+                // Acon Digital modification - this used to set a flagPaintPending latch and skip the
+                // trigger whenever it was already set, clearing it only from handleAsyncUpdate().
+                // That duplicates the coalescing AsyncUpdater already does - triggerAsyncUpdate() is
+                // a no-op while a message of its own is undelivered - but the copy cannot see whether
+                // delivery happened, so the two could get out of step. A single AsyncUpdater message
+                // delayed by a few seconds (measured: one delayed while the rest of the message queue
+                // kept flowing) then discarded *every* vblank for as long as the delay lasted, which
+                // stopped repainting for the whole process, on every window, until it cleared. Let
+                // AsyncUpdater be the only thing tracking its own message.
                 triggerAsyncUpdate();
+                // Acon Digital modification - End of modification
             }
             else
             {
@@ -155,12 +160,6 @@ private:
 
     void handleAsyncUpdate() override
     {
-        // Acon Digital modification - clear the pending flag from a scope guard. An exception thrown
-        // by a listener is swallowed by the message queue, and the flag then stayed set forever,
-        // which permanently stops this monitor's vblank stream and so freezes every window on it.
-        const ScopeGuard clearPaintPending { [this] { state &= ~flagPaintPending; } };
-        // Acon Digital modification - End of modification
-
         const auto timestampSec = lastVBlankEvent / 1000.0;
 
         // Acon Digital modification - iterate a snapshot and re-check each listener before calling
@@ -177,7 +176,9 @@ private:
     enum Flags
     {
         flagExit = 1 << 0,
-        flagPaintPending = 1 << 1,
+        // Acon Digital modification - flagPaintPending removed, see run(). AsyncUpdater already
+        // coalesces its own undelivered message, and the duplicate latch here could strand the
+        // stream when delivery was slow.
     };
 
     //==============================================================================
