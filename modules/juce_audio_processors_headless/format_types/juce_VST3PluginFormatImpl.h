@@ -184,6 +184,83 @@ static int getHashForRange (Range&& range) noexcept
     return (int) value;
 }
 
+/*  Records a class id the plug-in says it replaces, in both of the hashed forms a description
+    carries. A saved reference may hold either, depending on the JUCE version and the platform that
+    wrote it, so matching has to be able to try both.
+
+    A plug-in may name its own current id among the ones it replaces - JUCE does exactly that when
+    JUCE_VST3_CAN_REPLACE_VST2 is enabled alongside JUCE_VST3_COMPATIBLE_CLASSES - and that entry is
+    dropped, so this field holds only ids the description does not already carry.
+*/
+static void addCompatibleClassId (PluginDescription& description, const TUID& oldCid)
+{
+    const auto deprecatedForm = getHashForRange (oldCid);
+    const auto normalisedForm = getHashForRange (getNormalisedTUID (oldCid));
+
+    if (deprecatedForm == description.deprecatedUid && normalisedForm == description.uniqueId)
+        return;
+
+    description.compatibleUniqueIds.addIfNotAlreadyThere (deprecatedForm);
+    description.compatibleUniqueIds.addIfNotAlreadyThere (normalisedForm);
+}
+
+static void addCompatibleClassId (PluginDescription& description, const std::string& oldCid)
+{
+    if (const auto uid = VST3::UID::fromString (oldCid))
+        addCompatibleClassId (description, uid->data());
+}
+
+/*  Records the compatibility mapping a plug-in declares through IPluginCompatibility.
+
+    A bundle carrying a moduleinfo.json states the same thing statically, and that path is preferred
+    because it needs no instantiation. This one is for the rest: a plug-in built with
+    VST3_AUTO_MANIFEST disabled ships no manifest, so its factory is the only place the mapping can
+    be read - which includes every plug-in JUCE builds that way.
+*/
+static void addCompatibleClassIdsFromFactory (PluginDescription& description,
+                                              IPluginFactory* factory,
+                                              const TUID& componentCid)
+{
+    if (factory == nullptr)
+        return;
+
+    const auto numClasses = factory->countClasses();
+
+    for (auto classIndex = decltype (numClasses){}; classIndex < numClasses; ++classIndex)
+    {
+        PClassInfo classInfo{};
+
+        if (factory->getClassInfo (classIndex, &classInfo) != kResultOk)
+            continue;
+
+        if (std::strcmp (classInfo.category, kPluginCompatibilityClass) != 0)
+            continue;
+
+        Steinberg::IPluginCompatibility* compatibility = nullptr;
+
+        if (factory->createInstance (classInfo.cid, Steinberg::IPluginCompatibility::iid, (void**) &compatibility) != kResultOk
+            || compatibility == nullptr)
+        {
+            continue;
+        }
+
+        const ScopeGuard releaseCompatibility { [compatibility] { compatibility->release(); } };
+
+        Steinberg::MemoryStream stream;
+
+        if (compatibility->getCompatibilityJSON (&stream) != kResultOk)
+            continue;
+
+        const std::string_view json (stream.getData(), (size_t) stream.getSize());
+
+        if (const auto entries = Steinberg::ModuleInfoLib::parseCompatibilityJson (json, nullptr))
+            for (const auto& entry : *entries)
+                if (const auto newUid = VST3::UID::fromString (entry.newCID); newUid && *newUid == VST3::UID (componentCid))
+                    for (const auto& oldCid : entry.oldCID)
+                        addCompatibleClassId (description, oldCid);
+    }
+}
+
 template <typename ObjectType>
 static void fillDescriptionWith (PluginDescription& description, ObjectType& object)
 {
@@ -237,6 +314,12 @@ static std::vector<PluginDescription> createPluginDescriptions (const File& plug
 
         description.deprecatedUid       = getHashForRange (uid->data());
         description.uniqueId            = getHashForRange (getNormalisedTUID (uid->data()));
+
+        // The manifest states the compatibility mapping outright, so no instantiation is needed.
+        for (const auto& entry : info.compatibility)
+            if (const auto newUid = VST3::UID::fromString (entry.newCID); newUid && *newUid == *uid)
+                for (const auto& oldCid : entry.oldCID)
+                    addCompatibleClassId (description, oldCid);
 
         StringArray categories;
 
@@ -1039,6 +1122,8 @@ struct DescriptionLister
                         createPluginDescription (desc, file, companyName, name,
                                                  info, info2.get(), infoW.get(), numInputs, numOutputs);
 
+                        addCompatibleClassIdsFromFactory (desc, &factory, info.cid);
+
                         component->terminate();
                     }
                     else
@@ -1611,6 +1696,8 @@ struct VST3ComponentHolder
                                  info, info2.get(), infoW.get(),
                                  totalNumInputChannels,
                                  totalNumOutputChannels);
+
+        addCompatibleClassIdsFromFactory (description, factory.get(), info.cid);
 
         description.hasARAExtension = hasARAExtension (factory.get(), description.name);
     }

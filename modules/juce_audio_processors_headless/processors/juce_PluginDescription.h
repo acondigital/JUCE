@@ -126,6 +126,24 @@ public:
     */
     int uniqueId = 0;
 
+    /** Ids this plug-in has previously been released under and still answers to.
+
+        A VST3 can declare, through IPluginCompatibility, the class ids it replaces,
+        so that a host can resolve a project saved before the plug-in's identity
+        moved. This array holds those ids in the same hashed form as uniqueId and
+        deprecatedUid, so a host can compare them against a saved reference
+        directly; both hashes are included for each declared class, because a
+        stored reference may carry either.
+
+        Empty when the plug-in declares nothing, and empty for formats other than
+        VST3. It is also empty for a description restored from a plug-in list
+        written before this field existed, so treat it as "no information" rather
+        than "no compatible ids".
+
+        @see createIdentifierString
+    */
+    Array<int> compatibleUniqueIds;
+
     /** True if the plug-in identifies itself as a synthesiser. */
     bool isInstrument = false;
 

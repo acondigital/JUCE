@@ -92,6 +92,16 @@ std::unique_ptr<XmlElement> PluginDescription::createXml() const
 
     e->setAttribute ("uid", String::toHexString (deprecatedUid));
 
+    if (! compatibleUniqueIds.isEmpty())
+    {
+        StringArray hexIds;
+
+        for (const auto id : compatibleUniqueIds)
+            hexIds.add (String::toHexString (id));
+
+        e->setAttribute ("compatibleUniqueIds", hexIds.joinIntoString (" "));
+    }
+
     return e;
 }
 
@@ -116,6 +126,14 @@ bool PluginDescription::loadFromXml (const XmlElement& xml)
 
         deprecatedUid       = xml.getStringAttribute ("uid").getHexValue32();
         uniqueId            = xml.getStringAttribute ("uniqueId", "0").getHexValue32();
+
+        // Absent in a list written before this field existed, which reads as "no information"
+        // rather than "declares nothing" - the plug-in supplies it again on the next scan.
+        compatibleUniqueIds.clearQuick();
+
+        for (const auto& hexId : StringArray::fromTokens (xml.getStringAttribute ("compatibleUniqueIds"), " ", {}))
+            if (hexId.isNotEmpty())
+                compatibleUniqueIds.add (hexId.getHexValue32());
 
         return true;
     }
