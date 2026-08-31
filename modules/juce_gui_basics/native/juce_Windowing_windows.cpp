@@ -1672,6 +1672,31 @@ public:
         return nullptr;
     }
 
+    // Acon Digital modification - picks the window that should get the foreground back when this one
+    // is destroyed. Windows will not reliably choose it: destroying the foreground window makes it
+    // walk the global z-order, which lands on another application even when one of ours is directly
+    // below, so closing a dialog dropped the whole application to the background. Note that the fix
+    // cannot be to give the window a Win32 owner - for a non-child window GetParent() returns the
+    // owner, and the layout, scaling and transparency code in this file uses GetParent() to mean the
+    // WS_CHILD parent. Must be called on the message thread, as GetActiveWindow() is per-thread.
+    static HWND findWindowToRestoreActivationTo (int styleFlags) noexcept
+    {
+        // A minimise or maximise button marks a primary window; there is nothing above one of those
+        // to hand activation back to.
+        if ((styleFlags & (windowHasMinimiseButton | windowHasMaximiseButton)) != 0)
+            return nullptr;
+
+        // The window this one is being raised from, so that dismissing a dialog opened from another
+        // dialog goes back to that one rather than all the way out to the main window. It is
+        // re-checked before use, since it may have been destroyed first.
+        if (auto* active = GetActiveWindow())
+            if (JuceWindowIdentifier::isJUCEWindow (active))
+                return active;
+
+        return nullptr;
+    }
+    // Acon Digital modification - End of modification
+
     //==============================================================================
     bool isInside (HWND h) const noexcept
     {
@@ -2017,6 +2042,12 @@ public:
 
 private:
     HWND hwnd, parentToAddTo;
+
+    // Acon Digital modification - where the foreground is handed on destruction, if this window still
+    // holds it. Purely an activation target, deliberately not a Win32 owner - see
+    // findWindowToRestoreActivationTo().
+    HWND windowToRestoreActivationTo = nullptr;
+    // Acon Digital modification - End of modification
     std::unique_ptr<DropShadower> shadower;
     uint32 lastPaintTime = 0;
     ULONGLONG lastMagnifySize = 0;
@@ -2188,6 +2219,12 @@ private:
             return appearsOnTaskbar ? WS_EX_APPWINDOW : WS_EX_TOOLWINDOW;
         });
 
+        // Acon Digital modification - remember where to hand the foreground back, while the window
+        // this one is being raised from is still the active one.
+        windowToRestoreActivationTo = parentToAddTo != nullptr ? parentToAddTo
+                                                              : findWindowToRestoreActivationTo (styleFlags);
+        // Acon Digital modification - End of modification
+
         hwnd = CreateWindowEx (exstyle, WindowClassHolder::getInstance()->getWindowClassName(),
                                L"", type, 0, 0, 0, 0, parentToAddTo, nullptr,
                                (HINSTANCE) Process::getCurrentModuleInstanceHandle(), nullptr);
@@ -2283,6 +2320,18 @@ private:
 
             // NB: we need to do this before DestroyWindow() as child HWNDs will be invalid after
             EnumChildWindows (hwnd, revokeChildDragDropCallback, 0);
+
+            // Acon Digital modification - hand the foreground on ourselves rather than leaving
+            // Windows to guess, which drops the application to the background. This has to happen
+            // before DestroyWindow, while we still hold the foreground: that is the condition under
+            // which SetForegroundWindow is granted. A WS_CHILD window is never the foreground window,
+            // so a plug-in editor embedded in a host never reaches this.
+            if (hwnd == GetForegroundWindow())
+                if (auto* target = windowToRestoreActivationTo)
+                    if (IsWindow (target) && JuceWindowIdentifier::isJUCEWindow (target)
+                        && IsWindowVisible (target) && IsWindowEnabled (target))
+                        SetForegroundWindow (target);
+            // Acon Digital modification - End of modification
 
             DestroyWindow (hwnd);
         }
