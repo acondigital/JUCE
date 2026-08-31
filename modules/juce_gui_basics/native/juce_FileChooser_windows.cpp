@@ -103,6 +103,15 @@ public:
         // the thread should not be running
         nativeDialogRef.set (nullptr);
 
+        // Acon Digital modification - the owner used to be read as GetActiveWindow() inside
+        // openDialog(), which in the async case runs on the thread started below. GetActiveWindow()
+        // is per-thread, so it returned null there and every async dialog was shown with no owner,
+        // free to end up behind the application. Read it here instead, while we are still on the
+        // message thread. Starting the thread orders this write against the reads in openDialog(),
+        // so no atomic is needed.
+        ownerWindow = GetActiveWindow();
+        // Acon Digital modification - End of modification
+
         if (async)
         {
             jassert (! isThreadRunning());
@@ -173,6 +182,8 @@ private:
     HeapBlock<WCHAR> filters;
 
     Atomic<HWND> nativeDialogRef { nullptr };
+    // Acon Digital modification - the dialog's owner, captured on the message thread in open()
+    HWND ownerWindow = nullptr;
     bool shouldCancel = false;
 
     struct FreeLPWSTR
@@ -332,7 +343,7 @@ private:
 
             Events events { *this };
             ScopedAdvise scope { dialog, events };
-            return dialog.Show (GetActiveWindow()) == S_OK;
+            return dialog.Show (ownerWindow) == S_OK; // Acon Digital modification - was GetActiveWindow()
         }();
 
         ScopedLock lock (deletingDialog);
@@ -438,7 +449,7 @@ private:
         if (selectsDirectories)
         {
             BROWSEINFO bi = {};
-            bi.hwndOwner = GetActiveWindow();
+            bi.hwndOwner = ownerWindow; // Acon Digital modification - was GetActiveWindow()
             bi.pszDisplayName = files;
             bi.lpszTitle = title.toWideCharPointer();
             bi.lParam = (LPARAM) this;
@@ -488,7 +499,7 @@ private:
                 startingFile.getFullPathName().copyToUTF16 (files, charsAvailableForResult * sizeof (WCHAR));
             }
 
-            of.hwndOwner = GetActiveWindow();
+            of.hwndOwner = ownerWindow; // Acon Digital modification - was GetActiveWindow()
             of.lpstrFilter = filters.getData();
             of.nFilterIndex = 1;
             of.lpstrFile = files;
