@@ -437,6 +437,15 @@ public:
     /** Changes the window's transparency. */
     virtual void setAlpha (float newAlpha) = 0;
 
+    /** Asks the peer to report the fingers resting on an indirect touch surface, such as a
+        trackpad, in MouseWheelDetails::numTouches.
+
+        This lets a component tell a two-finger trackpad swipe apart from a wheel or a mouse
+        that scrolls with a single finger. It is off by default, and only the macOS peer
+        implements it - everywhere else this does nothing and numTouches stays at zero.
+    */
+    virtual void setIndirectTouchEventsEnabled (bool shouldBeEnabled);
+
     //==============================================================================
     void handleMouseEvent (MouseInputSource::InputSourceType type, Point<float> positionWithinPeer, ModifierKeys newMods, float pressure,
                            float orientation, int64 time, PenDetails pen = {}, int touchIndex = 0);

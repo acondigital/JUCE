@@ -429,6 +429,17 @@ struct MouseWheelDetails  final
     /** If true, then this event is part of the inertial momentum phase that follows
         the wheel being released. */
     bool isInertial;
+
+    /** The number of fingers resting on an indirect touch surface such as a trackpad.
+
+        This is zero for a conventional wheel, and zero on any platform or peer that does
+        not report indirect touches. A peer only reports them after
+        ComponentPeer::setIndirectTouchEventsEnabled() has been called.
+
+        The count is latched when the gesture begins and held for the rest of it, including
+        the inertial phase, so a swipe that has already been released still reads as a swipe.
+    */
+    int numTouches = 0;
 };
 
 //==============================================================================

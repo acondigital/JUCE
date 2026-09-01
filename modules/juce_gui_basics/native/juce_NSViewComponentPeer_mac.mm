@@ -471,6 +471,16 @@ public:
             [window setAlphaValue: (CGFloat) newAlpha];
     }
 
+    void setIndirectTouchEventsEnabled (bool shouldBeEnabled) override
+    {
+        // Accepting indirect touches is what makes the fingers resting on a trackpad
+        // available on the scroll event. The view implements none of the touchesBegan:
+        // family, so the touch events themselves just pass up the responder chain.
+        if (@available (macOS 10.12.2, *))
+            [view setAllowedTouchTypes: shouldBeEnabled ? NSTouchTypeMaskIndirect
+                                                        : (NSTouchTypeMask) 0];
+    }
+
     void setMinimised (bool shouldBeMinimised) override
     {
         if (! isSharedWindow)
@@ -856,6 +866,22 @@ public:
             const float scale = 10.0f / 256.0f;
             wheel.deltaX = scale * (float) [ev deltaX];
             wheel.deltaY = scale * (float) [ev deltaY];
+        }
+
+        // A trackpad reports the fingers resting on it, a mouse that scrolls with a single
+        // finger reports one, and a notched wheel none. The count is latched when the fingers
+        // land, so lifting one mid-swipe - and the momentum tail, which carries no touches at
+        // all - cannot change what the gesture is.
+        if (@available (macOS 10.12.2, *))
+        {
+            const auto phase = [ev phase];
+
+            if (phase == NSEventPhaseMayBegin || phase == NSEventPhaseBegan)
+                wheelTouchCount = (int) [[ev touchesMatchingPhase: NSTouchPhaseTouching inView: nil] count];
+            else if (phase == NSEventPhaseNone && [ev momentumPhase] == NSEventPhaseNone)
+                wheelTouchCount = 0;
+
+            wheel.numTouches = wheelTouchCount;
         }
 
         handleMouseWheel (MouseInputSource::InputSourceType::mouse, getMousePos (ev, view), getMouseTime (ev), wheel);
@@ -1778,6 +1804,7 @@ public:
     bool draggingActive = false;
     String stringBeingComposed;
     int startOfMarkedTextInTextInputTarget = 0;
+    int wheelTouchCount = 0;
 
     Rectangle<float> lastSizeBeforeZoom;
     RectangleList<float> deferredRepaints;

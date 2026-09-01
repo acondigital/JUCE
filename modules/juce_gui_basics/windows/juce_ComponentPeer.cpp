@@ -111,6 +111,12 @@ void ComponentPeer::handleMagnifyGesture (MouseInputSource::InputSourceType type
         MouseInputSource (*mouse).handleMagnifyGesture (*this, pos, time, scaleFactor);
 }
 
+void ComponentPeer::setIndirectTouchEventsEnabled (bool)
+{
+    // Only the macOS peer can report these; everywhere else MouseWheelDetails::numTouches
+    // stays at zero.
+}
+
 //==============================================================================
 void ComponentPeer::handlePaint (LowLevelGraphicsContext& contextToPaintTo)
 {
