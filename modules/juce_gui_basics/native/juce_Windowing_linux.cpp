@@ -209,6 +209,7 @@ public:
     void setVisible (bool shouldBeVisible) override
     {
         XWindowSystem::getInstance()->setVisible (windowH, shouldBeVisible);
+        windowMapped = shouldBeVisible;
     }
 
     void setTitle (const String& title) override
@@ -237,6 +238,20 @@ public:
     void setFullScreen (bool shouldBeFullScreen) override
     {
         auto r = lastNonFullscreenBounds; // (get a copy of this before de-minimising)
+
+        // EWMH requires _NET_WM_STATE to be set as a property while the window is still unmapped -
+        // the ClientMessage below is only for a window the window manager already manages. Mapping
+        // first and asking straight after races the window manager, which then places and maximises
+        // the window by its own policy rather than over the bounds it was given. On a multi-monitor
+        // desktop that lands it on whichever screen the window manager favours, and the wrong
+        // position is then saved and restored for good.
+        if (shouldBeFullScreen && ! windowMapped && (styleFlags & windowHasTitleBar) != 0)
+        {
+            XWindowSystem::getInstance()->setMaximisedBeforeMapping (windowH);
+            setMinimised (false);
+            component.repaint();
+            return;
+        }
 
         setMinimised (false);
 
@@ -668,6 +683,7 @@ private:
     Rectangle<int> physicalBounds;
     ComponentPeer::OptionalBorderSize windowBorder;
     bool fullScreen = false, isAlwaysOnTop = false;
+    bool windowMapped = false;
     std::optional<double> scaleFactorOverride;
     double currentScaleFactor = 1.0;
     Array<Component*> glRepaintListeners;

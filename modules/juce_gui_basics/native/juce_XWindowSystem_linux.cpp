@@ -2131,6 +2131,36 @@ void XWindowSystem::setMaximised (::Window windowH, bool shouldBeMaximised) cons
     X11Symbols::getInstance()->xSendEvent (display, root, false, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
 }
 
+void XWindowSystem::setMaximisedBeforeMapping (::Window windowH) const
+{
+    jassert (windowH != 0);
+
+    if (atoms.windowState == None)
+        return;
+
+    XWindowSystemUtilities::ScopedXLock xLock;
+
+    // setWindowType() may already have written _NET_WM_STATE, and the property is replaced whole,
+    // so whatever is there has to be carried over rather than overwritten.
+    std::vector<Atom> states;
+
+    {
+        XWindowSystemUtilities::GetXProperty prop (display, windowH, atoms.windowState, 0, 128, false, XA_ATOM);
+
+        if (prop.success && prop.actualFormat == 32 && prop.actualType == XA_ATOM)
+        {
+            const auto* data = unalignedPointerCast<const Atom*> (prop.data);
+            states.assign (data, data + prop.numItems);
+        }
+    }
+
+    for (const auto state : { atoms.windowStateMaximisedHorz, atoms.windowStateMaximisedVert })
+        if (std::find (states.begin(), states.end(), state) == states.end())
+            states.push_back (state);
+
+    xchangeProperty (windowH, atoms.windowState, XA_ATOM, 32, states.data(), (int) states.size());
+}
+
 void XWindowSystem::toFront (::Window windowH, bool) const
 {
     jassert (windowH != 0);
