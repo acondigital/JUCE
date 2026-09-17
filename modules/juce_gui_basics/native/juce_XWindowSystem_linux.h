@@ -202,6 +202,7 @@ public:
     bool isFullScreen (::Window) const;
 
     void setMaximised (::Window, bool shouldBeMinimised) const;
+    void setMaximisedBeforeMapping (::Window) const;
 
     void toFront  (::Window, bool makeActive) const;
     void toBehind (::Window, ::Window otherWindow) const;
