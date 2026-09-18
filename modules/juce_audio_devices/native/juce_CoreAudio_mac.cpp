@@ -301,6 +301,72 @@ struct CoreAudioClasses
 class CoreAudioIODeviceType;
 class CoreAudioIODevice;
 
+// Acon Digital modification: CoreAudio delivers property listener notifications asynchronously on
+// the HAL's own dispatch queue, and AudioObjectRemovePropertyListener() does not drain the ones it
+// has already dispatched. Upstream passes raw object pointers as the listener client data, so a
+// notification queued just before a device was destroyed walks freed memory. (Sentry NATIVE-68: a
+// stale kAudioDevicePropertyDeviceHasChanged went from a freed CoreAudioInternal through owner and
+// restarter into AudioIODeviceCombiner::shutdown(), which called a virtual function on a garbage
+// AudioIODeviceCallback pointer.)
+//
+// No listener registration passes a pointer any more - each passes an opaque token instead. A token
+// is resolved to its object only while this registry's mutex is held, and an object removes its
+// token before it starts tearing itself down, so a callback can never reach an object whose
+// destructor has begun. Tokens are never reused, so a stale notification cannot be misrouted into a
+// different object that happens to have been allocated at the same address either, which is a real
+// possibility here because createDevice() is also used to build short-lived probe devices.
+//
+// Contract for the callable passed to withRegisteredObject(): it runs with the mutex held, so it
+// must not block, must not call into CoreAudio, must not take callbackLock, closeLock or
+// startStopLock, and must not call client code. Everything that does belongs on the message thread -
+// see deviceRequestedRestart().
+class HalListenerRegistry
+{
+public:
+    using Token = std::size_t;
+
+    static HalListenerRegistry& get()
+    {
+        // Never destroyed: HAL threads can still be delivering notifications while static
+        // destructors run.
+        static auto* registry = new HalListenerRegistry();
+        return *registry;
+    }
+
+    Token add (void* object)
+    {
+        const std::lock_guard<std::mutex> lock (mutex);
+        objects.emplace (++nextToken, object);
+        return nextToken;
+    }
+
+    void remove (Token token)
+    {
+        const std::lock_guard<std::mutex> lock (mutex);
+        objects.erase (token);
+    }
+
+    template <typename Type, typename Fn>
+    void withRegisteredObject (void* clientData, Fn&& fn)
+    {
+        const std::lock_guard<std::mutex> lock (mutex);
+        const auto iter = objects.find (reinterpret_cast<Token> (clientData));
+
+        if (iter != objects.end())
+            fn (*static_cast<Type*> (iter->second));
+    }
+
+    static void* toClientData (Token token)    { return reinterpret_cast<void*> (token); }
+
+private:
+    HalListenerRegistry() = default;
+
+    std::mutex mutex;
+    std::map<Token, void*> objects;
+    Token nextToken = 0;
+};
+// Acon Digital modification - End of modification
+
 //==============================================================================
 class CoreAudioInternal final : private Timer,
                                 private AsyncUpdater
@@ -331,11 +397,23 @@ public:
         pa.mScope = kAudioObjectPropertyScopeWildcard;
         pa.mElement = kAudioObjectPropertyElementWildcard;
 
-        AudioObjectAddPropertyListener (deviceID, &pa, deviceListenerProc, this);
+        // Acon Digital modification: registered with a token rather than with `this` - see
+        // HalListenerRegistry.
+        AudioObjectAddPropertyListener (deviceID, &pa, deviceListenerProc, HalListenerRegistry::toClientData (listenerToken));
     }
 
     ~CoreAudioInternal() override
     {
+        // Acon Digital modification: deregister first, so a notification the HAL has already
+        // dispatched can no longer reach this object. One that is inside the registry callback right
+        // now finishes before remove() returns, and all it can do is re-arm the timer or the async
+        // update, both of which the two calls below then cancel - which is also why the pre-existing
+        // "cancel before removing the listener" order here no longer matters. Note we must not hold
+        // the registry mutex across AudioObjectRemovePropertyListener(): the HAL thread takes HAL
+        // locks and then the registry mutex, so taking the two in the opposite order could deadlock.
+        HalListenerRegistry::get().remove (listenerToken);
+        // Acon Digital modification - End of modification
+
         stopTimer();
         cancelPendingUpdate();
 
@@ -344,7 +422,7 @@ public:
         pa.mScope = kAudioObjectPropertyScopeWildcard;
         pa.mElement = kAudioObjectPropertyElementWildcard;
 
-        AudioObjectRemovePropertyListener (deviceID, &pa, deviceListenerProc, this);
+        AudioObjectRemovePropertyListener (deviceID, &pa, deviceListenerProc, HalListenerRegistry::toClientData (listenerToken));
 
         stop (false);
     }
@@ -848,11 +926,23 @@ public:
     // called by callbacks (possibly off the main thread)
     void deviceRequestedRestart()
     {
-        owner.restart();
+        // Acon Digital modification: this used to call owner.restart() straight away, which runs the
+        // whole teardown on the HAL's notification thread: for a combiner
+        // AudioIODeviceCombiner::close() stops both halves and calls audioDeviceStopped() on the
+        // client, and CoreAudioInternal::stop() can hold that thread for up to two seconds in its
+        // sleep loop. Nothing else in this file touches a device from that thread, and the objects
+        // being torn down can be destroyed concurrently by the message thread. Hand the restart over
+        // to the message thread, as deviceDetailsChanged() above already does.
+        restartRequested = true;
         triggerAsyncUpdate();
+        // Acon Digital modification - End of modification
     }
 
     bool isPlaying() const { return playing.load(); }
+
+    // Acon Digital modification: CoreAudioIODevice registers a second listener that targets this
+    // object, and has to pass the same token.
+    HalListenerRegistry::Token getListenerToken() const { return listenerToken; }
 
     //==============================================================================
     struct Stream
@@ -1221,6 +1311,13 @@ private:
     size_t audioBufferLengthInSamples = 0;
     Atomic<int> callbacksAllowed { 1 };
 
+    // Acon Digital modification: the HAL listeners that target this object are registered with this
+    // token rather than with `this`, and a restart requested from a HAL thread is carried over to the
+    // message thread by this flag - see HalListenerRegistry and deviceRequestedRestart().
+    const HalListenerRegistry::Token listenerToken = HalListenerRegistry::get().add (this);
+    std::atomic<bool> restartRequested { false };
+    // Acon Digital modification - End of modification
+
     //==============================================================================
     void timerCallback() override
     {
@@ -1238,6 +1335,12 @@ private:
 
     void handleAsyncUpdate() override
     {
+        // Acon Digital modification: deferred here from deviceRequestedRestart(), which used to do
+        // this on the HAL's notification thread.
+        if (restartRequested.exchange (false))
+            owner.restart();
+        // Acon Digital modification - End of modification
+
         if (owner.deviceType != nullptr)
             owner.deviceType->audioDeviceListChanged();
     }
@@ -1259,14 +1362,10 @@ private:
                                         const AudioObjectPropertyAddress* pa,
                                         void* inClientData)
     {
-        auto& intern = *static_cast<CoreAudioInternal*> (inClientData);
-
         const auto xruns = std::count_if (pa, pa + numAddresses, [] (const AudioObjectPropertyAddress& x)
         {
             return x.mSelector == kAudioDeviceProcessorOverload;
         });
-
-        intern.xruns += (int) xruns;
 
         const auto detailsChanged = std::any_of (pa, pa + numAddresses, [] (const AudioObjectPropertyAddress& x)
         {
@@ -1294,11 +1393,20 @@ private:
             return std::find (std::begin (selectors), std::end (selectors), x.mSelector) != std::end (selectors);
         });
 
-        if (detailsChanged)
-            intern.deviceDetailsChanged();
+        // Acon Digital modification: resolve the client data through the registry rather than
+        // dereferencing it - it may name an object that has already been destroyed. The property
+        // scans above read only pa, so they stay outside the lock.
+        HalListenerRegistry::get().withRegisteredObject<CoreAudioInternal> (inClientData, [&] (CoreAudioInternal& intern)
+        {
+            intern.xruns += (int) xruns;
 
-        if (requestedRestart)
-            intern.deviceRequestedRestart();
+            if (detailsChanged)
+                intern.deviceDetailsChanged();
+
+            if (requestedRestart)
+                intern.deviceRequestedRestart();
+        });
+        // Acon Digital modification - End of modification
 
         return noErr;
     }
@@ -1352,7 +1460,10 @@ public:
         pa.mScope    = kAudioObjectPropertyScopeWildcard;
         pa.mElement  = kAudioObjectPropertyElementWildcard;
 
-        AudioObjectAddPropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc, internal.get());
+        // Acon Digital modification: registered with the internal object's token rather than with its
+        // address - see HalListenerRegistry.
+        AudioObjectAddPropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc,
+                                        HalListenerRegistry::toClientData (internal->getListenerToken()));
     }
 
     ~CoreAudioIODevice() override
@@ -1364,7 +1475,9 @@ public:
         pa.mScope = kAudioObjectPropertyScopeWildcard;
         pa.mElement = kAudioObjectPropertyElementWildcard;
 
-        AudioObjectRemovePropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc, internal.get());
+        // Acon Digital modification: must match the token passed when registering above.
+        AudioObjectRemovePropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc,
+                                           HalListenerRegistry::toClientData (internal->getListenerToken()));
     }
 
     StringArray getOutputChannelNames() override        { return internal->outStream != nullptr ? internal->outStream->chanNames : StringArray(); }
@@ -1549,8 +1662,12 @@ private:
             return x.mSelector == kAudioHardwarePropertyDevices;
         });
 
+        // Acon Digital modification: resolve the client data through the registry rather than
+        // dereferencing it - it may name an object that has already been destroyed.
         if (detailsChanged)
-            static_cast<CoreAudioInternal*> (inClientData)->deviceDetailsChanged();
+            HalListenerRegistry::get().withRegisteredObject<CoreAudioInternal> (inClientData,
+                                                                                [] (CoreAudioInternal& intern) { intern.deviceDetailsChanged(); });
+        // Acon Digital modification - End of modification
 
         return noErr;
     }
@@ -2230,11 +2347,21 @@ public:
         pa.mScope = kAudioObjectPropertyScopeWildcard;
         pa.mElement = kAudioObjectPropertyElementWildcard;
 
-        AudioObjectAddPropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc, this);
+        // Acon Digital modification: registered with a token rather than with `this` - see
+        // HalListenerRegistry.
+        AudioObjectAddPropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc,
+                                        HalListenerRegistry::toClientData (listenerToken));
     }
 
     ~CoreAudioIODeviceType() override
     {
+        // Acon Digital modification: deregister before cancelling the pending update, so a
+        // notification the HAL has already dispatched can no longer re-trigger it. The device type is
+        // destroyed with the AudioDeviceManager's type list at shutdown, while HAL threads can still
+        // be delivering.
+        HalListenerRegistry::get().remove (listenerToken);
+        // Acon Digital modification - End of modification
+
         cancelPendingUpdate();
 
         AudioObjectPropertyAddress pa;
@@ -2242,7 +2369,8 @@ public:
         pa.mScope = kAudioObjectPropertyScopeWildcard;
         pa.mElement = kAudioObjectPropertyElementWildcard;
 
-        AudioObjectRemovePropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc, this);
+        AudioObjectRemovePropertyListener (kAudioObjectSystemObject, &pa, hardwareListenerProc,
+                                           HalListenerRegistry::toClientData (listenerToken));
     }
 
     //==============================================================================
@@ -2383,6 +2511,10 @@ private:
 
     bool hasScanned = false;
 
+    // Acon Digital modification: the HAL listener is registered with this token rather than with
+    // `this` - see HalListenerRegistry.
+    const HalListenerRegistry::Token listenerToken = HalListenerRegistry::get().add (this);
+
     void handleAsyncUpdate() override
     {
         audioDeviceListChanged();
@@ -2407,7 +2539,12 @@ private:
 
     static OSStatus hardwareListenerProc (AudioDeviceID, UInt32, const AudioObjectPropertyAddress*, void* clientData)
     {
-        static_cast<CoreAudioIODeviceType*> (clientData)->triggerAsyncUpdate();
+        // Acon Digital modification: resolve the client data through the registry rather than
+        // dereferencing it - it may name an object that has already been destroyed.
+        HalListenerRegistry::get().withRegisteredObject<CoreAudioIODeviceType> (clientData,
+                                                                                [] (CoreAudioIODeviceType& type) { type.triggerAsyncUpdate(); });
+        // Acon Digital modification - End of modification
+
         return noErr;
     }
 
