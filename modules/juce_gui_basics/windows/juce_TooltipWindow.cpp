@@ -112,6 +112,11 @@ void TooltipWindow::displayTipInternal (Point<int> screenPos, const String& tip,
     {
         ScopedValueSetter<bool> setter (reentrant, true, false);
 
+        // Acon Digital modification - transparent where the look and feel's background is, so that its
+        // corners can be rounded, as a menu's are
+        setOpaque (findColour (backgroundColourId).isOpaque() || ! Desktop::canUseSemiTransparentWindows());
+        // Acon Digital modification - End of modification
+
         if (tipShowing != tip)
         {
             tipShowing = tip;
