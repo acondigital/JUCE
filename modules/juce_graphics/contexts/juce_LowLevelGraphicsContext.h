@@ -193,4 +193,29 @@ public:
     virtual uint64_t getFrameId() const = 0;
 };
 
+//==============================================================================
+/**
+    Process-wide switches for how text is rasterised, each read by the renderers that offer it.
+    Contexts read them as they draw, so a change shows from the next repaint.
+    Change them on the message thread.
+
+    @tags{Graphics}
+*/
+struct JUCE_API TextRasterisation
+{
+    /** CoreGraphics font smoothing: a stem darkening that makes text heavier. */
+    bool fontSmoothing = ! JUCE_DISABLE_COREGRAPHICS_FONT_SMOOTHING;
+
+    /** DirectWrite rendering parameters for Direct2D. A negative gamma or contrast keeps the
+        system's, which the ClearType Tuner sets; the modes are DWRITE_RENDERING_MODE1 and
+        DWRITE_GRID_FIT_MODE values, whose 0 lets DirectWrite choose.
+    */
+    float gamma = -1.0f;
+    float grayscaleEnhancedContrast = -1.0f;
+    int renderingMode = 0;
+    int gridFitMode = 0;
+
+    static TextRasterisation& get();
+};
+
 } // namespace juce

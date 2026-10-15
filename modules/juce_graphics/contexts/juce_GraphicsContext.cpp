@@ -336,10 +336,30 @@ void Graphics::setFillType (const FillType& newFill)
 }
 
 //==============================================================================
+TextRasterisation& TextRasterisation::get()
+{
+    static TextRasterisation settings;
+    return settings;
+}
+
+static Graphics::FontAdjuster& getFontAdjuster()
+{
+    static Graphics::FontAdjuster adjuster;
+    return adjuster;
+}
+
+void Graphics::setFontAdjuster (FontAdjuster adjuster)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+    getFontAdjuster() = std::move (adjuster);
+}
+
 void Graphics::setFont (const Font& newFont)
 {
     saveStateIfPending();
-    context.setFont (newFont);
+
+    const auto& adjuster = getFontAdjuster();
+    context.setFont (adjuster != nullptr ? adjuster (newFont, context.getPhysicalPixelScaleFactor()) : newFont);
 }
 
 void Graphics::setFont (const float newFontHeight)

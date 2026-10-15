@@ -124,6 +124,16 @@ public:
     /** Returns the currently selected font. */
     Font getCurrentFont() const;
 
+    /** Receives every font passed to setFont(), with the physical pixel scale of the context it
+        is being set on, and returns the font to use instead.
+    */
+    using FontAdjuster = std::function<Font (const Font&, float physicalPixelScale)>;
+
+    /** Installs a FontAdjuster for every Graphics context, or removes it when given nullptr.
+        Call it on the message thread.
+    */
+    static void setFontAdjuster (FontAdjuster);
+
     /** Draws a one-line text string.
 
         This will use the current colour (or brush) to fill the text. The font is the last

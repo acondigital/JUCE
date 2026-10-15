@@ -346,13 +346,7 @@ CoreGraphicsContext::CoreGraphicsContext (CGContextRef c, float h)
     CGContextSaveGState (context.get());
 
    #if JUCE_MAC
-    bool enableFontSmoothing
-                 #if JUCE_DISABLE_COREGRAPHICS_FONT_SMOOTHING
-                  = false;
-                 #else
-                  = true;
-                 #endif
-
+    const auto enableFontSmoothing = TextRasterisation::get().fontSmoothing;
     CGContextSetShouldSmoothFonts (context.get(), enableFontSmoothing);
     CGContextSetAllowsFontSmoothing (context.get(), enableFontSmoothing);
    #endif

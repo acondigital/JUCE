@@ -1090,6 +1090,50 @@ void Direct2DGraphicsContext::fillEllipse (const Rectangle<float>& area)
     paintPrimitive (area, fill);
 }
 
+static IDWriteRenderingParams* getTextRenderingParams (IDWriteFactory4* factory)
+{
+    const auto& settings = TextRasterisation::get();
+
+    if (factory == nullptr
+        || (settings.gamma < 0.0f && settings.grayscaleEnhancedContrast < 0.0f && settings.renderingMode == 0 && settings.gridFitMode == 0))
+        return nullptr;
+
+    static TextRasterisation cachedFor;
+    static ComSmartPtr<IDWriteRenderingParams3> cached;
+
+    if (cached == nullptr
+        || ! exactlyEqual (cachedFor.gamma, settings.gamma)
+        || ! exactlyEqual (cachedFor.grayscaleEnhancedContrast, settings.grayscaleEnhancedContrast)
+        || cachedFor.renderingMode != settings.renderingMode
+        || cachedFor.gridFitMode != settings.gridFitMode)
+    {
+        ComSmartPtr<IDWriteRenderingParams> system;
+
+        if (FAILED (factory->CreateRenderingParams (system.resetAndGetPointerAddress())))
+            return nullptr;
+
+        const auto system1 = system.getInterface<IDWriteRenderingParams1>();
+        const auto systemGrayscaleContrast = system1 != nullptr ? system1->GetGrayscaleEnhancedContrast() : 1.0f;
+
+        if (FAILED (factory->CreateCustomRenderingParams (settings.gamma >= 0.0f ? settings.gamma : system->GetGamma(),
+                                                          system->GetEnhancedContrast(),
+                                                          settings.grayscaleEnhancedContrast >= 0.0f ? settings.grayscaleEnhancedContrast : systemGrayscaleContrast,
+                                                          system->GetClearTypeLevel(),
+                                                          system->GetPixelGeometry(),
+                                                          (DWRITE_RENDERING_MODE1) settings.renderingMode,
+                                                          (DWRITE_GRID_FIT_MODE) settings.gridFitMode,
+                                                          cached.resetAndGetPointerAddress())))
+        {
+            cached = nullptr;
+            return nullptr;
+        }
+
+        cachedFor = settings;
+    }
+
+    return cached.get();
+}
+
 void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
                                           Span<const Point<float>> positions,
                                           const AffineTransform& transform)
@@ -1145,6 +1189,8 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     };
 
     applyPendingClipList();
+
+    deviceContext->SetTextRenderingParams (getTextRenderingParams (getPimpl()->getDirectWriteFactory4().get()));
 
     D2D1_POINT_2F baselineOrigin { 0.0f, 0.0f };
 
