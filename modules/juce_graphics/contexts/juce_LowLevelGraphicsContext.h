@@ -210,10 +210,15 @@ struct JUCE_API TextRasterisation
         system's, which the ClearType Tuner sets; the modes are DWRITE_RENDERING_MODE1 and
         DWRITE_GRID_FIT_MODE values, whose 0 lets DirectWrite choose.
     */
-    float gamma = -1.0f;
-    float grayscaleEnhancedContrast = -1.0f;
+    float gamma = (float) (JUCE_DIRECTWRITE_TEXT_GAMMA);
+    float grayscaleEnhancedContrast = (float) (JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST);
     int renderingMode = 0;
     int gridFitMode = 0;
+
+    /** Direct2D: moves each glyph run so that its baseline falls on a whole device pixel, which
+        DirectWrite does not do itself in its natural rendering modes.
+    */
+    bool snapBaseline = JUCE_DIRECT2D_SNAP_TEXT_BASELINE;
 
     static TextRasterisation& get();
 };

@@ -1134,6 +1134,15 @@ static IDWriteRenderingParams* getTextRenderingParams (IDWriteFactory4* factory)
     return cached.get();
 }
 
+static AffineTransform snapBaselineToPixel (const AffineTransform& transform, Point<float> firstGlyph)
+{
+    if (! TextRasterisation::get().snapBaseline || ! exactlyEqual (transform.mat01, 0.0f) || ! exactlyEqual (transform.mat10, 0.0f))
+        return transform;
+
+    const auto y = firstGlyph.transformedBy (transform).y;
+    return transform.translated (0.0f, std::round (y) - y);
+}
+
 void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
                                           Span<const Point<float>> positions,
                                           const AffineTransform& transform)
@@ -1169,7 +1178,7 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     const auto fontScale = font.getHorizontalScale();
     const auto textTransform = AffineTransform::scale (fontScale, 1.0f).followedBy (transform);
     const auto worldTransform = currentState->currentTransform.getTransform();
-    const auto textAndWorldTransform = textTransform.followedBy (worldTransform);
+    const auto textAndWorldTransform = snapBaselineToPixel (textTransform.followedBy (worldTransform), positions.front());
     const auto onlyTranslated = textAndWorldTransform.isOnlyTranslation();
 
     const auto fillTransform = onlyTranslated

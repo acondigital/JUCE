@@ -87,6 +87,33 @@
  #define JUCE_DISABLE_COREGRAPHICS_FONT_SMOOTHING 0
 #endif
 
+/** Config: JUCE_DIRECTWRITE_TEXT_GAMMA
+
+    The gamma DirectWrite applies to text drawn by Direct2D. A negative value keeps the system's,
+    which the ClearType Tuner sets.
+*/
+#ifndef JUCE_DIRECTWRITE_TEXT_GAMMA
+ #define JUCE_DIRECTWRITE_TEXT_GAMMA -1.0
+#endif
+
+/** Config: JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST
+
+    The enhanced contrast DirectWrite applies to greyscale text drawn by Direct2D. A negative value
+    keeps the system's, which the ClearType Tuner sets.
+*/
+#ifndef JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST
+ #define JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST -1.0
+#endif
+
+/** Config: JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+
+    Setting this flag makes Direct2D draw each line of text with its baseline on a whole device
+    pixel, as CoreGraphics and the software renderer do.
+*/
+#ifndef JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+ #define JUCE_DIRECT2D_SNAP_TEXT_BASELINE 0
+#endif
+
 #ifndef JUCE_INCLUDE_PNGLIB_CODE
  #define JUCE_INCLUDE_PNGLIB_CODE 1
 #endif
