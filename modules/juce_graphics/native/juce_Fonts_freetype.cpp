@@ -32,6 +32,20 @@
   ==============================================================================
 */
 
+// Acon Digital modification - with JUCE_FREETYPE_TEXT_HINTING set, the glyphs of FreeType typefaces
+// are drawn hinted by the font's own TrueType hints, up to an em size of
+// JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE device pixels, or at every size when that is 0.
+#ifndef JUCE_FREETYPE_TEXT_HINTING
+ #define JUCE_FREETYPE_TEXT_HINTING 0
+#endif
+
+#ifndef JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE
+ #define JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE 0.0
+#endif
+
+#include FT_OUTLINE_H
+// Acon Digital modification - End of modification
+
 namespace juce
 {
 
@@ -495,6 +509,81 @@ public:
     {
         return native.get();
     }
+
+    // Acon Digital modification - see JUCE_FREETYPE_TEXT_HINTING. HarfBuzz's outlines leave the
+    // font's hints out, so FreeType loads the glyph instead.
+    std::optional<std::vector<GlyphLayer>> getHintedLayersForGlyph (int glyphNumber, const AffineTransform& t) const override
+    {
+        // AffineTransform::rotation (pi / 2) leaves rounding errors, not exact zeros.
+        const auto isZero = [] (float v) { return std::abs (v) < 1.0e-4f; };
+        const auto turned = isZero (t.mat00) && isZero (t.mat11);
+        const Point xAxis { t.mat00, t.mat10 }, yAxis { t.mat01, t.mat11 };
+        const auto emSize = yAxis.getDistanceFromOrigin();
+
+        if (! JUCE_FREETYPE_TEXT_HINTING
+            || (JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE > 0.0 && emSize > (float) JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE)
+            || ! (turned || (isZero (t.mat01) && isZero (t.mat10))))
+            return {};
+
+        auto* face = ftFace->face;
+        auto* hb = native->getFont();
+        float emboldenX{}, emboldenY{};
+        hb_font_get_synthetic_bold (hb, &emboldenX, &emboldenY, nullptr);
+
+        // FreeType's outline lacks colour layers and HarfBuzz's synthetic styles.
+        if (getColourGlyphFormats() != 0
+            || ! exactlyEqual (hb_font_get_synthetic_slant (hb), 0.0f) || ! exactlyEqual (emboldenX, 0.0f) || ! exactlyEqual (emboldenY, 0.0f))
+            return {};
+
+        // A face is shared between typefaces and threads, and holds the size.
+        static CriticalSection lock;
+        const ScopedLock sl (lock);
+
+        if (FT_Set_Char_Size (face, 0, (FT_F26Dot6) roundToInt (emSize * 64.0f), 72, 72) != 0
+            || FT_Load_Glyph (face, (FT_UInt) glyphNumber, (FT_Int32) (FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT)) != 0
+            || face->glyph->format != FT_GLYPH_FORMAT_OUTLINE)
+            return {};
+
+        // TrueType hints run at a whole number of pixels per em when the font asks for it, as most
+        // do. Scaling back horizontally keeps the glyph as wide as the layout made room for.
+        const auto* head = static_cast<const TT_Header*> (FT_Get_Sfnt_Table (face, FT_SFNT_HEAD));
+        const auto ppemScale = head != nullptr && (head->Flags & 8) != 0 ? emSize / (float) face->size->metrics.x_ppem : 1.0f;
+
+        struct Outline
+        {
+            Path path;
+            float xScale;
+
+            Point<float> at (const FT_Vector* v) const { return { (float) v->x * xScale, (float) v->y / -64.0f }; }
+            static Outline& of (void* user) { return *static_cast<Outline*> (user); }
+        };
+
+        // FreeType closes each contour with a segment back to its start.
+        const FT_Outline_Funcs funcs
+        {
+            [] (const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.startNewSubPath (o.at (to)); return 0; },
+            [] (const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.lineTo (o.at (to)); return 0; },
+            [] (const FT_Vector* c, const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.quadraticTo (o.at (c), o.at (to)); return 0; },
+            [] (const FT_Vector* c1, const FT_Vector* c2, const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.cubicTo (o.at (c1), o.at (c2), o.at (to)); return 0; },
+            0, 0
+        };
+
+        Outline outline { {}, xAxis.getDistanceFromOrigin() / emSize * ppemScale / 64.0f };
+
+        if (FT_Outline_Decompose (&face->glyph->outline, &funcs, &outline) != 0)
+            return {};
+
+        if (outline.path.isEmpty())
+            return std::vector<GlyphLayer>{};
+
+        // The hinted edges only land on pixels if the baseline does too.
+        const auto x = xAxis / xAxis.getDistanceFromOrigin(), y = yAxis / emSize;
+        outline.path.applyTransform (AffineTransform (x.x, y.x, turned ? std::round (t.mat02) : t.mat02,
+                                                      x.y, y.y, turned ? t.mat12 : std::round (t.mat12)));
+
+        return std::vector<GlyphLayer> { GlyphLayer { ColourLayer { EdgeTable { outline.path.getBounds().getSmallestIntegerContainer().expanded (1, 0), outline.path, {} }, {} } } };
+    }
+    // Acon Digital modification - End of modification
 
     static Typeface::Ptr findSystemTypeface()
     {
