@@ -1140,6 +1140,14 @@ static IDWriteRenderingParams* getTextRenderingParams (IDWriteFactory4* factory)
 }
 // Acon Digital modification - End of modification
 
+// Acon Digital modification - with this config macro set, the baseline of each glyph run falls on a
+// whole device pixel, as with CoreGraphics and the software renderer. DirectWrite's natural
+// rendering modes leave it where the layout puts it, between pixels.
+#ifndef JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+ #define JUCE_DIRECT2D_SNAP_TEXT_BASELINE 0
+#endif
+// Acon Digital modification - End of modification
+
 void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
                                           Span<const Point<float>> positions,
                                           const AffineTransform& transform)
@@ -1175,7 +1183,17 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     const auto fontScale = font.getHorizontalScale();
     const auto textTransform = AffineTransform::scale (fontScale, 1.0f).followedBy (transform);
     const auto worldTransform = currentState->currentTransform.getTransform();
-    const auto textAndWorldTransform = textTransform.followedBy (worldTransform);
+    // Acon Digital modification - see JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+    auto textAndWorldTransform = textTransform.followedBy (worldTransform);
+
+   #if JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+    if (exactlyEqual (textAndWorldTransform.mat01, 0.0f) && exactlyEqual (textAndWorldTransform.mat10, 0.0f))
+    {
+        const auto baseline = positions.front().transformedBy (textAndWorldTransform).y;
+        textAndWorldTransform = textAndWorldTransform.translated (0.0f, std::round (baseline) - baseline);
+    }
+   #endif
+    // Acon Digital modification - End of modification
     const auto onlyTranslated = textAndWorldTransform.isOnlyTranslation();
 
     const auto fillTransform = onlyTranslated
