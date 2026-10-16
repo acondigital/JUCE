@@ -319,6 +319,11 @@ public:
     /** @internal */
     virtual const Native* getNativeDetails() const = 0;
 
+    // Acon Digital modification - lets a typeface draw a glyph from hinted outlines of its own, see getLayersForGlyph()
+    /** @internal */
+    virtual std::optional<std::vector<GlyphLayer>> getHintedLayersForGlyph (int, const AffineTransform&) const { return {}; }
+    // Acon Digital modification - End of modification
+
 protected:
     /** @internal */
     Typeface (const String&, const String&);
