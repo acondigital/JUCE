@@ -114,6 +114,24 @@
 #ifndef JUCE_DIRECT2D_SNAP_TEXT_BASELINE
  #define JUCE_DIRECT2D_SNAP_TEXT_BASELINE 0
 #endif
+
+/** Config: JUCE_FREETYPE_TEXT_HINTING
+
+    Setting this flag makes the software renderer draw glyphs of FreeType typefaces, as on Linux,
+    hinted by the font's own TrueType hints.
+*/
+#ifndef JUCE_FREETYPE_TEXT_HINTING
+ #define JUCE_FREETYPE_TEXT_HINTING 0
+#endif
+
+/** Config: JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE
+
+    The largest em size, in device pixels, that JUCE_FREETYPE_TEXT_HINTING applies to; 0 applies it
+    to every size.
+*/
+#ifndef JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE
+ #define JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE 0.0
+#endif
 // Acon Digital modification - End of modification
 
 #ifndef JUCE_INCLUDE_PNGLIB_CODE

@@ -122,6 +122,9 @@
  #include FT_ADVANCES_H
  #include FT_TRUETYPE_TABLES_H
  #include FT_GLYPH_H
+ // Acon Digital modification - for FreeTypeTypeface::getHintedGlyphOutline()
+ #include FT_OUTLINE_H
+ // Acon Digital modification - End of modification
 
  #ifdef FT_COLOR_H
   #include FT_COLOR_H

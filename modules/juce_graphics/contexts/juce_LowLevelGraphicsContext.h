@@ -221,6 +221,17 @@ struct JUCE_API TextRasterisation
     */
     bool snapBaseline = JUCE_DIRECT2D_SNAP_TEXT_BASELINE;
 
+    /** Software renderer, FreeType typefaces: draws glyphs from outlines hinted by the font's own
+        TrueType hints at the size drawn in device pixels. Only heights are hinted; glyphs keep
+        their width and advance.
+    */
+    bool freeTypeHinting = JUCE_FREETYPE_TEXT_HINTING;
+
+    /** The largest em size, in device pixels, that freeTypeHinting applies to; 0 applies it to
+        every size.
+    */
+    float freeTypeHintingMaximumSize = (float) (JUCE_FREETYPE_TEXT_HINTING_MAXIMUM_SIZE);
+
     static TextRasterisation& get();
 };
 // Acon Digital modification - End of modification

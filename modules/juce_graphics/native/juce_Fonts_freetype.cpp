@@ -496,6 +496,61 @@ public:
         return native.get();
     }
 
+    // Acon Digital modification - the font's own TrueType hints, which HarfBuzz's outlines leave out
+    std::optional<Path> getHintedGlyphOutline (int glyphNumber, float emSize, float horizontalScale) const override
+    {
+        auto* face = ftFace->face;
+        auto* hb = native->getFont();
+        float emboldenX{}, emboldenY{};
+        hb_font_get_synthetic_bold (hb, &emboldenX, &emboldenY, nullptr);
+
+        // FreeType's outline lacks colour layers and HarfBuzz's synthetic styles.
+        if (getColourGlyphFormats() != 0
+            || ! exactlyEqual (hb_font_get_synthetic_slant (hb), 0.0f) || ! exactlyEqual (emboldenX, 0.0f) || ! exactlyEqual (emboldenY, 0.0f))
+            return {};
+
+        // A face is shared between typefaces and threads, and holds the size.
+        static CriticalSection lock;
+        const ScopedLock sl (lock);
+
+        if (FT_Set_Char_Size (face, 0, (FT_F26Dot6) roundToInt (emSize * 64.0f), 72, 72) != 0
+            || FT_Load_Glyph (face, (FT_UInt) glyphNumber, (FT_Int32) (FT_LOAD_NO_BITMAP | FT_LOAD_NO_AUTOHINT)) != 0
+            || face->glyph->format != FT_GLYPH_FORMAT_OUTLINE)
+            return {};
+
+        // TrueType hints run at a whole number of pixels per em when the font asks for it, as most
+        // do. Scaling back horizontally keeps the glyph as wide as the layout made room for.
+        const auto* head = static_cast<const TT_Header*> (FT_Get_Sfnt_Table (face, FT_SFNT_HEAD));
+        const auto ppemScale = head != nullptr && (head->Flags & 8) != 0 ? emSize / (float) face->size->metrics.x_ppem : 1.0f;
+
+        struct Outline
+        {
+            Path path;
+            float xScale;
+
+            Point<float> at (const FT_Vector* v) const { return { (float) v->x * xScale, (float) v->y / -64.0f }; }
+            static Outline& of (void* user) { return *static_cast<Outline*> (user); }
+        };
+
+        // FreeType closes each contour with a segment back to its start.
+        const FT_Outline_Funcs funcs
+        {
+            [] (const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.startNewSubPath (o.at (to)); return 0; },
+            [] (const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.lineTo (o.at (to)); return 0; },
+            [] (const FT_Vector* c, const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.quadraticTo (o.at (c), o.at (to)); return 0; },
+            [] (const FT_Vector* c1, const FT_Vector* c2, const FT_Vector* to, void* user) { auto& o = Outline::of (user); o.path.cubicTo (o.at (c1), o.at (c2), o.at (to)); return 0; },
+            0, 0
+        };
+
+        Outline outline { {}, horizontalScale * ppemScale / 64.0f };
+
+        if (FT_Outline_Decompose (&face->glyph->outline, &funcs, &outline) != 0)
+            return {};
+
+        return outline.path;
+    }
+    // Acon Digital modification - End of modification
+
     static Typeface::Ptr findSystemTypeface()
     {
        #if JUCE_USE_FONTCONFIG

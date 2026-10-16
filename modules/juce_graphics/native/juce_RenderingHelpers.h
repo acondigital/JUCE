@@ -201,21 +201,57 @@ public:
 
     const auto& get (const Font& font, const int glyphNumber)
     {
-        return cache.get (Key { font, glyphNumber }, [] (const auto& key)
+        // Acon Digital modification - glyphs are cached hinted or not, see getLayers()
+        return cache.get (Key { font, glyphNumber, isHinted (font.getHeightInPoints()) }, [] (const auto& key)
         {
             const auto fontHeight = key.font.getHeightInPoints();
-            const auto typeface = key.font.getTypefacePtr();
-            return typeface->getLayersForGlyph (key.glyph,
-                                                AffineTransform::scale (fontHeight * key.font.getHorizontalScale(),
-                                                                        fontHeight));
+            return getLayers (key.font, key.glyph, AffineTransform::scale (fontHeight * key.font.getHorizontalScale(), fontHeight));
         });
+        // Acon Digital modification - End of modification
     }
+
+    // Acon Digital modification - hints glyphs as TextRasterisation::freeTypeHinting asks
+    /** The glyph's layers through a transform from its em square to device pixels, hinted along
+        the glyph's own vertical axis when TextRasterisation asks for it and the transform turns
+        the glyph by a multiple of 90 degrees.
+    */
+    static std::vector<GlyphLayer> getLayers (const Font& font, int glyphNumber, const AffineTransform& t)
+    {
+        // AffineTransform::rotation (pi / 2) leaves rounding errors, not exact zeros.
+        const auto isZero = [] (float v) { return std::abs (v) < 1.0e-4f; };
+        const auto turned = isZero (t.mat00) && isZero (t.mat11);
+        const Point xAxis { t.mat00, t.mat10 }, yAxis { t.mat01, t.mat11 };
+        const auto emSize = yAxis.getDistanceFromOrigin();
+        const auto typeface = font.getTypefacePtr();
+
+        if ((turned || (isZero (t.mat01) && isZero (t.mat10))) && isHinted (emSize))
+        {
+            if (auto path = typeface->getHintedGlyphOutline (glyphNumber, emSize, xAxis.getDistanceFromOrigin() / emSize))
+            {
+                if (path->isEmpty())
+                    return {};
+
+                // The hinted edges only land on pixels if the baseline does too.
+                const auto x = xAxis / xAxis.getDistanceFromOrigin(), y = yAxis / emSize;
+                path->applyTransform (AffineTransform (x.x, y.x, turned ? std::round (t.mat02) : t.mat02,
+                                                       x.y, y.y, turned ? t.mat12 : std::round (t.mat12)));
+
+                return { GlyphLayer { ColourLayer { EdgeTable { path->getBounds().getSmallestIntegerContainer().expanded (1, 0), *path, {} }, {} } } };
+            }
+        }
+
+        return typeface->getLayersForGlyph (glyphNumber, t);
+    }
+    // Acon Digital modification - End of modification
 
 private:
     struct Key
     {
         Font font;
         int glyph;
+        // Acon Digital modification - see get()
+        bool hinted;
+        // Acon Digital modification - End of modification
 
         bool operator< (const Key& other) const
         {
@@ -225,9 +261,23 @@ private:
             if (other.glyph < glyph)
                 return false;
 
+            // Acon Digital modification - see get()
+            if (hinted != other.hinted)
+                return other.hinted;
+            // Acon Digital modification - End of modification
+
             return GraphicsFontHelpers::compareFont (font, other.font);
         }
     };
+
+    // Acon Digital modification - see getLayers()
+    static bool isHinted (float emSize)
+    {
+        const auto& rasterisation = TextRasterisation::get();
+        const auto maximumSize = rasterisation.freeTypeHintingMaximumSize;
+        return rasterisation.freeTypeHinting && (maximumSize <= 0.0f || emSize <= maximumSize);
+    }
+    // Acon Digital modification - End of modification
 
     LruCache<Key, std::vector<GlyphLayer>> cache;
 
@@ -2670,7 +2720,9 @@ protected:
             const auto fontTransform = AffineTransform::scale (fontHeight * stack->font.getHorizontalScale(),
                                                                fontHeight).followedBy (t);
             const auto fullTransform = stack->transform.getTransformWith (fontTransform);
-            return std::tuple (stack->font.getTypefacePtr()->getLayersForGlyph (i, fullTransform), Point<float>{});
+            // Acon Digital modification - hints rotated text too, see GlyphCache::getLayers()
+            return std::tuple (RenderingHelpers::GlyphCache::getLayers (stack->font, i, fullTransform), Point<float>{});
+            // Acon Digital modification - End of modification
         }();
 
         const auto initialFill = stack->fillType;

@@ -319,6 +319,14 @@ public:
     /** @internal */
     virtual const Native* getNativeDetails() const = 0;
 
+    // Acon Digital modification - lets the software renderer hint glyphs, see TextRasterisation::freeTypeHinting
+    /** @internal
+        The glyph's outline in pixels, hinted for drawing at this em size, or nothing when this
+        typeface can't hint it.
+    */
+    virtual std::optional<Path> getHintedGlyphOutline (int, float, float) const { return {}; }
+    // Acon Digital modification - End of modification
+
 protected:
     /** @internal */
     Typeface (const String&, const String&);
