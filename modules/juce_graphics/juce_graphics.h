@@ -87,6 +87,7 @@
  #define JUCE_DISABLE_COREGRAPHICS_FONT_SMOOTHING 0
 #endif
 
+// Acon Digital modification - defaults for TextRasterisation
 /** Config: JUCE_DIRECTWRITE_TEXT_GAMMA
 
     The gamma DirectWrite applies to text drawn by Direct2D. A negative value keeps the system's,
@@ -113,6 +114,7 @@
 #ifndef JUCE_DIRECT2D_SNAP_TEXT_BASELINE
  #define JUCE_DIRECT2D_SNAP_TEXT_BASELINE 0
 #endif
+// Acon Digital modification - End of modification
 
 #ifndef JUCE_INCLUDE_PNGLIB_CODE
  #define JUCE_INCLUDE_PNGLIB_CODE 1

@@ -124,6 +124,8 @@ public:
     /** Returns the currently selected font. */
     Font getCurrentFont() const;
 
+    // Acon Digital modification - lets an application change fonts as they are set, by the scale
+    // they are drawn at
     /** Receives every font passed to setFont(), with the physical pixel scale of the context it
         is being set on, and returns the font to use instead.
     */
@@ -133,6 +135,7 @@ public:
         Call it on the message thread.
     */
     static void setFontAdjuster (FontAdjuster);
+    // Acon Digital modification - End of modification
 
     /** Draws a one-line text string.
 

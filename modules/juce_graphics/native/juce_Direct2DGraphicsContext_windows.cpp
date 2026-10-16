@@ -1090,6 +1090,7 @@ void Direct2DGraphicsContext::fillEllipse (const Rectangle<float>& area)
     paintPrimitive (area, fill);
 }
 
+// Acon Digital modification - the DirectWrite parameters and baseline snap of TextRasterisation
 static IDWriteRenderingParams* getTextRenderingParams (IDWriteFactory4* factory)
 {
     const auto& settings = TextRasterisation::get();
@@ -1142,6 +1143,7 @@ static AffineTransform snapBaselineToPixel (const AffineTransform& transform, Po
     const auto y = firstGlyph.transformedBy (transform).y;
     return transform.translated (0.0f, std::round (y) - y);
 }
+// Acon Digital modification - End of modification
 
 void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
                                           Span<const Point<float>> positions,
@@ -1178,7 +1180,9 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     const auto fontScale = font.getHorizontalScale();
     const auto textTransform = AffineTransform::scale (fontScale, 1.0f).followedBy (transform);
     const auto worldTransform = currentState->currentTransform.getTransform();
+    // Acon Digital modification - see snapBaselineToPixel()
     const auto textAndWorldTransform = snapBaselineToPixel (textTransform.followedBy (worldTransform), positions.front());
+    // Acon Digital modification - End of modification
     const auto onlyTranslated = textAndWorldTransform.isOnlyTranslation();
 
     const auto fillTransform = onlyTranslated
@@ -1199,7 +1203,9 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
 
     applyPendingClipList();
 
+    // Acon Digital modification - see getTextRenderingParams()
     deviceContext->SetTextRenderingParams (getTextRenderingParams (getPimpl()->getDirectWriteFactory4().get()));
+    // Acon Digital modification - End of modification
 
     D2D1_POINT_2F baselineOrigin { 0.0f, 0.0f };
 

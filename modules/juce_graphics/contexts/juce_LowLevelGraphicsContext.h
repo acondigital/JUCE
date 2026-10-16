@@ -194,6 +194,7 @@ public:
 };
 
 //==============================================================================
+// Acon Digital modification - text rasterisation settings an application can change at run time
 /**
     Process-wide switches for how text is rasterised, each read by the renderers that offer it.
     Contexts read them as they draw, so a change shows from the next repaint.
@@ -222,5 +223,6 @@ struct JUCE_API TextRasterisation
 
     static TextRasterisation& get();
 };
+// Acon Digital modification - End of modification
 
 } // namespace juce

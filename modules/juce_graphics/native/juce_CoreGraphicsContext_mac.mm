@@ -346,7 +346,9 @@ CoreGraphicsContext::CoreGraphicsContext (CGContextRef c, float h)
     CGContextSaveGState (context.get());
 
    #if JUCE_MAC
+    // Acon Digital modification - read at run time, see TextRasterisation
     const auto enableFontSmoothing = TextRasterisation::get().fontSmoothing;
+    // Acon Digital modification - End of modification
     CGContextSetShouldSmoothFonts (context.get(), enableFontSmoothing);
     CGContextSetAllowsFontSmoothing (context.get(), enableFontSmoothing);
    #endif

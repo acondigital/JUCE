@@ -336,6 +336,7 @@ void Graphics::setFillType (const FillType& newFill)
 }
 
 //==============================================================================
+// Acon Digital modification - see TextRasterisation and setFontAdjuster()
 TextRasterisation& TextRasterisation::get()
 {
     static TextRasterisation settings;
@@ -353,13 +354,16 @@ void Graphics::setFontAdjuster (FontAdjuster adjuster)
     JUCE_ASSERT_MESSAGE_THREAD
     getFontAdjuster() = std::move (adjuster);
 }
+// Acon Digital modification - End of modification
 
 void Graphics::setFont (const Font& newFont)
 {
     saveStateIfPending();
 
+    // Acon Digital modification - every font goes through the font adjuster
     const auto& adjuster = getFontAdjuster();
     context.setFont (adjuster != nullptr ? adjuster (newFont, context.getPhysicalPixelScaleFactor()) : newFont);
+    // Acon Digital modification - End of modification
 }
 
 void Graphics::setFont (const float newFontHeight)
