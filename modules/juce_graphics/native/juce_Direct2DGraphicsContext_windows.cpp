@@ -1090,6 +1090,56 @@ void Direct2DGraphicsContext::fillEllipse (const Rectangle<float>& area)
     paintPrimitive (area, fill);
 }
 
+// Acon Digital modification - the gamma and greyscale enhanced contrast of Direct2D text, set by
+// config macros. A negative value keeps the system's, which the ClearType Tuner sets.
+#ifndef JUCE_DIRECTWRITE_TEXT_GAMMA
+ #define JUCE_DIRECTWRITE_TEXT_GAMMA -1.0
+#endif
+
+#ifndef JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST
+ #define JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST -1.0
+#endif
+
+static IDWriteRenderingParams* getTextRenderingParams (IDWriteFactory4* factory)
+{
+    if constexpr (JUCE_DIRECTWRITE_TEXT_GAMMA < 0.0 && JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST < 0.0)
+    {
+        return nullptr;
+    }
+    else
+    {
+        static const auto params = [factory]
+        {
+            ComSmartPtr<IDWriteRenderingParams> system;
+            ComSmartPtr<IDWriteRenderingParams3> result;
+
+            if (factory == nullptr || FAILED (factory->CreateRenderingParams (system.resetAndGetPointerAddress())))
+            {
+                jassertfalse;
+                return result;
+            }
+
+            const auto system1 = system.getInterface<IDWriteRenderingParams1>();
+            const auto systemGrayscaleContrast = system1 != nullptr ? system1->GetGrayscaleEnhancedContrast() : 1.0f;
+
+            if (FAILED (factory->CreateCustomRenderingParams (JUCE_DIRECTWRITE_TEXT_GAMMA >= 0.0 ? (FLOAT) JUCE_DIRECTWRITE_TEXT_GAMMA : system->GetGamma(),
+                                                              system->GetEnhancedContrast(),
+                                                              JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST >= 0.0 ? (FLOAT) JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST : systemGrayscaleContrast,
+                                                              system->GetClearTypeLevel(),
+                                                              system->GetPixelGeometry(),
+                                                              DWRITE_RENDERING_MODE1_DEFAULT,
+                                                              DWRITE_GRID_FIT_MODE_DEFAULT,
+                                                              result.resetAndGetPointerAddress())))
+                jassertfalse;
+
+            return result;
+        }();
+
+        return params.get();
+    }
+}
+// Acon Digital modification - End of modification
+
 void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
                                           Span<const Point<float>> positions,
                                           const AffineTransform& transform)
@@ -1145,6 +1195,11 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     };
 
     applyPendingClipList();
+
+    // Acon Digital modification - see getTextRenderingParams()
+    if (auto* params = getTextRenderingParams (getPimpl()->getDirectWriteFactory4().get()))
+        deviceContext->SetTextRenderingParams (params);
+    // Acon Digital modification - End of modification
 
     D2D1_POINT_2F baselineOrigin { 0.0f, 0.0f };
 
