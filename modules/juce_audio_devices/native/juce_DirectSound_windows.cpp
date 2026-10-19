@@ -1291,6 +1291,8 @@ private:
 
     void systemDeviceChanged()
     {
+        passMessageThreadGate();
+
         DSoundDeviceList newList;
         newList.scan();
 

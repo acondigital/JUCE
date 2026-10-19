@@ -1740,6 +1740,8 @@ private:
     //==============================================================================
     void handleAsyncUpdate() override
     {
+        AudioIODeviceType::passMessageThreadGate();
+
         auto closeDevices = [this]
         {
             close();
@@ -2020,6 +2022,8 @@ private:
     //==============================================================================
     void systemDeviceChanged()
     {
+        passMessageThreadGate();
+
         const auto newDevices = scan();
 
         if (std::exchange (devices, newDevices) != newDevices)
