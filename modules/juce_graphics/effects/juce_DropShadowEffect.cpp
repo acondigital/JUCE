@@ -54,6 +54,10 @@ void DropShadow::drawForImage (Graphics& g, const Image& srcImage) const
     blurred.getPixelData()->applySingleChannelBoxBlurEffect (radius);
 
     g.setColour (colour);
+
+    // See drawForPath()
+    Graphics::ScopedSaveState state (g);
+    g.reduceClipRegion (blurred.getBounds() + offset);
     g.drawImageAt (blurred, offset.x, offset.y, true);
 }
 
@@ -82,6 +86,12 @@ void DropShadow::drawForPath (Graphics& g, const Path& path) const
     pathImage.getPixelData()->applySingleChannelBoxBlurEffect (radius);
 
     g.setColour (colour);
+
+    // The image is drawn through a clip made from its alpha channel, and the software renderer builds
+    // that clip over the whole of the current one: a handle's shadow in a large editor cost as much as
+    // filling the editor. Narrowing the clip to the shadow first makes it cost what the shadow covers.
+    Graphics::ScopedSaveState state (g);
+    g.reduceClipRegion (area);
     g.drawImageAt (pathImage, area.getX(), area.getY(), true);
 }
 
