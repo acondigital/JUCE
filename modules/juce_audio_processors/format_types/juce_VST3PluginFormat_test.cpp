@@ -566,7 +566,7 @@ public:
                 mapper.prepare ({ ChannelMapping { AudioChannelSet::stereo() },
                                   ChannelMapping { AudioChannelSet::create7point1point2() },
                                   ChannelMapping { AudioChannelSet::create9point1point6(), false },
-                                  ChannelMapping { AudioChannelSet::createLCRS() } });
+                                  ChannelMapping { AudioChannelSet::createLCRS() } }, blockSize);
                 AudioBuffer<float> hostBuffer (16, blockSize);
                 const auto* clientBuffers = mapper.getVst3LayoutForJuceBuffer (hostBuffer);
 
@@ -590,8 +590,13 @@ public:
                 expect (clientBuffers[1].channelBuffers32[8]  == hostBuffer.getReadPointer (10));
                 expect (clientBuffers[1].channelBuffers32[9]  == hostBuffer.getReadPointer (11));
 
+                // A disabled bus is given silence rather than null pointers
                 for (auto i = 0; i < clientBuffers[2].numChannels; ++i)
-                    expect (clientBuffers[2].channelBuffers32[i] == nullptr);
+                {
+                    const auto* channel = clientBuffers[2].channelBuffers32[i];
+                    expect (channel != nullptr);
+                    expect (std::all_of (channel, channel + blockSize, [] (float x) { return exactlyEqual (x, 0.0f); }));
+                }
 
                 expect (clientBuffers[3].channelBuffers32[0]  == hostBuffer.getReadPointer (12));
                 expect (clientBuffers[3].channelBuffers32[1]  == hostBuffer.getReadPointer (13));
@@ -603,7 +608,7 @@ public:
                 mapper.prepare ({ ChannelMapping { AudioChannelSet::mono() },
                                   ChannelMapping { AudioChannelSet::mono(), false },
                                   ChannelMapping { AudioChannelSet::mono() },
-                                  ChannelMapping { AudioChannelSet::mono(), false } });
+                                  ChannelMapping { AudioChannelSet::mono(), false } }, blockSize);
                 AudioBuffer<double> hostBuffer (2, blockSize);
                 const auto* clientBuffers = mapper.getVst3LayoutForJuceBuffer (hostBuffer);
 
@@ -613,9 +618,20 @@ public:
                 expect (clientBuffers[3].numChannels == 1);
 
                 expect (clientBuffers[0].channelBuffers64[0] == hostBuffer.getReadPointer (0));
-                expect (clientBuffers[1].channelBuffers64[0] == nullptr);
+                expect (clientBuffers[1].channelBuffers64[0] != nullptr);
                 expect (clientBuffers[2].channelBuffers64[0] == hostBuffer.getReadPointer (1));
-                expect (clientBuffers[3].channelBuffers64[0] == nullptr);
+                expect (clientBuffers[3].channelBuffers64[0] != nullptr);
+            }
+
+            {
+                // A block larger than prepared for cannot be given silence, so falls back to null
+                mapper.prepare ({ ChannelMapping { AudioChannelSet::mono() },
+                                  ChannelMapping { AudioChannelSet::mono(), false } }, blockSize);
+                AudioBuffer<float> hostBuffer (1, blockSize * 2);
+                const auto* clientBuffers = mapper.getVst3LayoutForJuceBuffer (hostBuffer);
+
+                expect (clientBuffers[0].channelBuffers32[0] == hostBuffer.getReadPointer (0));
+                expect (clientBuffers[1].channelBuffers32[0] == nullptr);
             }
         }
 

@@ -998,7 +998,7 @@ class HostBufferMapper
 {
 public:
     /*  Builds a cached map of juce <-> vst3 channel mappings. */
-    void prepare (std::vector<ChannelMapping> arrangements)
+    void prepare (std::vector<ChannelMapping> arrangements, int maxSamplesPerBlock)
     {
         mappings = std::move (arrangements);
 
@@ -1013,18 +1013,36 @@ public:
             floatBusMap [index].reserve (numChannels);
             doubleBusMap[index].reserve (numChannels);
         }
+
+        const auto anyInactive = std::any_of (mappings.begin(), mappings.end(), [] (const auto& m) { return ! m.isActive(); });
+        const auto silenceSize = anyInactive ? (size_t) jmax (0, maxSamplesPerBlock) : size_t{};
+        floatSilence .assign (silenceSize, 0.0f);
+        doubleSilence.assign (silenceSize, 0.0);
     }
 
     /*  Applies the mapping to an AudioBuffer using JUCE channel layout. */
     template <typename FloatType>
     Steinberg::Vst::AudioBusBuffers* getVst3LayoutForJuceBuffer (AudioBuffer<FloatType>& source)
     {
+        // The spec allows an inactive bus null sample pointers, but some plug-ins read a side-chain
+        // without checking whether it is active and crash on them. The spec also wants a channel
+        // flagged as silent, as every inactive one is, to point at valid memory - silence does both.
+        auto& silence = getSilence (detail::Tag<FloatType>{});
+        FloatType* inactivePointer = nullptr;
+
+        if ((size_t) source.getNumSamples() <= silence.size())
+        {
+            // A plug-in may have written into it on the previous block.
+            std::fill (silence.begin(), silence.end(), FloatType{});
+            inactivePointer = silence.data();
+        }
+
         int channelIndexOffset = 0;
 
         for (size_t i = 0; i < mappings.size(); ++i)
         {
             const auto& mapping = mappings[i];
-            associateBufferTo (busBuffers[i], get (detail::Tag<FloatType>{})[i], source, mapping, channelIndexOffset);
+            associateBufferTo (busBuffers[i], get (detail::Tag<FloatType>{})[i], source, mapping, channelIndexOffset, inactivePointer);
             channelIndexOffset += mapping.isActive() ? (int) mapping.size() : 0;
         }
 
@@ -1046,7 +1064,8 @@ private:
                             Bus<FloatType>& bus,
                             AudioBuffer<FloatType>& buffer,
                             const ChannelMapping& busMap,
-                            int channelStartOffset) const
+                            int channelStartOffset,
+                            FloatType* inactivePointer) const
     {
         // If this is hit, we may be about to allocate memory. Ideally, this should have been
         // allocated in prepare().
@@ -1057,7 +1076,7 @@ private:
         for (size_t i = 0; i < busMap.size(); ++i)
         {
             bus.push_back (busMap.isActive() ? buffer.getWritePointer (channelStartOffset + busMap.getJuceChannelForVst3Channel ((int) i))
-                                             : nullptr);
+                                             : inactivePointer);
         }
 
         assignRawPointer (vstBuffers, bus.data());
@@ -1068,8 +1087,15 @@ private:
     auto& get (detail::Tag<float>)    { return floatBusMap; }
     auto& get (detail::Tag<double>)   { return doubleBusMap; }
 
+    auto& getSilence (detail::Tag<float>)    { return floatSilence; }
+    auto& getSilence (detail::Tag<double>)   { return doubleSilence; }
+
     BusMap<float>  floatBusMap;
     BusMap<double> doubleBusMap;
+
+    // Shared by every channel of every inactive bus in this direction.
+    std::vector<float>  floatSilence;
+    std::vector<double> doubleSilence;
 
     std::vector<Steinberg::Vst::AudioBusBuffers> busBuffers;
     std::vector<ChannelMapping> mappings;

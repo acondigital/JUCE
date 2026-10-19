@@ -2445,8 +2445,8 @@ public:
 
         setLatencySamples (jmax (0, (int) processor->getLatencySamples()));
 
-        inputBusMap .prepare (createChannelMappings (true));
-        outputBusMap.prepare (createChannelMappings (false));
+        inputBusMap .prepare (createChannelMappings (true),  estimatedSamplesPerBlock);
+        outputBusMap.prepare (createChannelMappings (false), estimatedSamplesPerBlock);
 
         setStateForAllMidiBuses (true);
 
@@ -3312,8 +3312,8 @@ private:
 
         warnOnFailure (processor->setupProcessing (setup));
 
-        inputBusMap .prepare (createChannelMappings (true));
-        outputBusMap.prepare (createChannelMappings (false));
+        inputBusMap .prepare (createChannelMappings (true),  (int) setup.maxSamplesPerBlock);
+        outputBusMap.prepare (createChannelMappings (false), (int) setup.maxSamplesPerBlock);
         setRateAndBufferSizeDetails (setup.sampleRate, (int) setup.maxSamplesPerBlock);
     }
 
