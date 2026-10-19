@@ -152,6 +152,21 @@ public:
     void removeListener (Listener* listener);
 
     //==============================================================================
+    /** Acon Digital modification - lets a host that opens devices on a thread of its own keep
+        system notifications from touching them at the same time.
+
+        Device types and devices act on system notifications - a device added or removed, a
+        stream invalidated - on the message thread, by rescanning their device lists and closing
+        or re-opening devices. None of that is safe while another thread is opening a device.
+        The gate is called on the message thread before any of it, and is expected to return
+        only once that other thread has finished. It is process-wide; pass nullptr to remove it.
+    */
+    static void setMessageThreadGate (std::function<void()> gate);
+
+    /** Called by device types and devices before they act on a system notification. */
+    static void passMessageThreadGate();
+
+    //==============================================================================
     /** Destructor. */
     virtual ~AudioIODeviceType();
 

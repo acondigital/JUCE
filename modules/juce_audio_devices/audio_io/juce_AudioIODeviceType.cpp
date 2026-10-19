@@ -54,6 +54,25 @@ void AudioIODeviceType::callDeviceChangeListeners()
 }
 
 //==============================================================================
+static std::function<void()>& getMessageThreadGate()
+{
+    static std::function<void()> gate;
+    return gate;
+}
+
+void AudioIODeviceType::setMessageThreadGate (std::function<void()> gate)
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+    getMessageThreadGate() = std::move (gate);
+}
+
+void AudioIODeviceType::passMessageThreadGate()
+{
+    JUCE_ASSERT_MESSAGE_THREAD
+    NullCheckedInvocation::invoke (getMessageThreadGate());
+}
+
+//==============================================================================
 #if JUCE_MAC
  AudioIODeviceType* AudioIODeviceType::createAudioIODeviceType_CoreAudio()  { return new CoreAudioClasses::CoreAudioIODeviceType(); }
 #else
