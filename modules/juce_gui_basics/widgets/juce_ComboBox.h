@@ -457,7 +457,7 @@ private:
     PopupMenu currentMenu;
     Value currentId;
     int lastCurrentId = 0;
-    bool isButtonDown = false, menuActive = false, scrollWheelEnabled = false;
+    bool isButtonDown = false, menuActive = false, scrollWheelEnabled = true;
     float mouseWheelAccumulator = 0;
     ListenerList<Listener> listeners;
     std::unique_ptr<Label> label;
