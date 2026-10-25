@@ -350,7 +350,9 @@ struct MenuWindow final : public Component, private AsyncUpdater
                 float parentScaleFactor = 1.0f)
         : Component ("menu"),
           parent (parentWindow),
-          options (opts.withParentComponent (findNonNullLookAndFeel (menu, parentWindow).getParentComponentForMenuOptions (opts))),
+          // Acon Digital modification - the options also say which decorations the items have, see withItemDecorationsOf()
+          options (withItemDecorationsOf (menu, opts.withParentComponent (findNonNullLookAndFeel (menu, parentWindow).getParentComponentForMenuOptions (opts)))),
+          // Acon Digital modification - End of modification
           managerOfChosenCommand (manager),
           componentAttachedTo (options.getTargetComponent()),
           windowCreationTime (Time::getMillisecondCounter()),
@@ -1421,6 +1423,18 @@ struct MenuWindow final : public Component, private AsyncUpdater
         return getLookAndFeel();
     }
 
+    // Acon Digital modification - the decorations of this window's own items, as a submenu's window has
+    // its own options
+    static Options withItemDecorationsOf (const PopupMenu& menu, const Options& opts)
+    {
+        const auto anyItem = [&menu] (auto predicate) { return std::any_of (menu.items.begin(), menu.items.end(), predicate); };
+
+        return opts.withItemDecorations (anyItem ([] (const PopupMenu::Item& i) { return i.image != nullptr; }),
+                                         anyItem ([] (const PopupMenu::Item& i) { return i.isTicked; }),
+                                         anyItem ([] (const PopupMenu::Item& i) { return i.subMenu != nullptr; }));
+    }
+    // Acon Digital modification - End of modification
+
     bool mouseHasBeenOver() const
     {
         return mouseWasOver;
@@ -2192,6 +2206,15 @@ PopupMenu::Options PopupMenu::Options::forSubmenu() const
 {
     return with (*this, &Options::targetComponent, nullptr);
 }
+
+// Acon Digital modification - see the declaration
+PopupMenu::Options PopupMenu::Options::withItemDecorations (bool anyItemHasIcon, bool anyItemIsTicked, bool anyItemHasSubMenu) const
+{
+    return with (with (with (*this, &Options::itemHasIcon, anyItemHasIcon),
+                       &Options::itemIsTicked, anyItemIsTicked),
+                 &Options::itemHasSubMenu, anyItemHasSubMenu);
+}
+// Acon Digital modification - End of modification
 
 Component* PopupMenu::createWindow (const Options& options,
                                     ApplicationCommandManager** managerOfChosenCommand) const

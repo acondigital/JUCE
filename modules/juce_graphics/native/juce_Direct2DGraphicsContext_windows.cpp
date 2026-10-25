@@ -1090,6 +1090,64 @@ void Direct2DGraphicsContext::fillEllipse (const Rectangle<float>& area)
     paintPrimitive (area, fill);
 }
 
+// Acon Digital modification - the gamma and greyscale enhanced contrast of Direct2D text, set by
+// config macros. A negative value keeps the system's, which the ClearType Tuner sets.
+#ifndef JUCE_DIRECTWRITE_TEXT_GAMMA
+ #define JUCE_DIRECTWRITE_TEXT_GAMMA -1.0
+#endif
+
+#ifndef JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST
+ #define JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST -1.0
+#endif
+
+static IDWriteRenderingParams* getTextRenderingParams (IDWriteFactory4* factory)
+{
+    if constexpr (JUCE_DIRECTWRITE_TEXT_GAMMA < 0.0 && JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST < 0.0)
+    {
+        return nullptr;
+    }
+    else
+    {
+        static const auto params = [factory]
+        {
+            ComSmartPtr<IDWriteRenderingParams> system;
+            ComSmartPtr<IDWriteRenderingParams3> result;
+
+            if (factory == nullptr || FAILED (factory->CreateRenderingParams (system.resetAndGetPointerAddress())))
+            {
+                jassertfalse;
+                return result;
+            }
+
+            const auto system1 = system.getInterface<IDWriteRenderingParams1>();
+            const auto systemGrayscaleContrast = system1 != nullptr ? system1->GetGrayscaleEnhancedContrast() : 1.0f;
+
+            if (FAILED (factory->CreateCustomRenderingParams (JUCE_DIRECTWRITE_TEXT_GAMMA >= 0.0 ? (FLOAT) JUCE_DIRECTWRITE_TEXT_GAMMA : system->GetGamma(),
+                                                              system->GetEnhancedContrast(),
+                                                              JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST >= 0.0 ? (FLOAT) JUCE_DIRECTWRITE_GRAYSCALE_ENHANCED_CONTRAST : systemGrayscaleContrast,
+                                                              system->GetClearTypeLevel(),
+                                                              system->GetPixelGeometry(),
+                                                              DWRITE_RENDERING_MODE1_DEFAULT,
+                                                              DWRITE_GRID_FIT_MODE_DEFAULT,
+                                                              result.resetAndGetPointerAddress())))
+                jassertfalse;
+
+            return result;
+        }();
+
+        return params.get();
+    }
+}
+// Acon Digital modification - End of modification
+
+// Acon Digital modification - with this config macro set, the baseline of each glyph run falls on a
+// whole device pixel, as with CoreGraphics and the software renderer. DirectWrite's natural
+// rendering modes leave it where the layout puts it, between pixels.
+#ifndef JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+ #define JUCE_DIRECT2D_SNAP_TEXT_BASELINE 0
+#endif
+// Acon Digital modification - End of modification
+
 void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
                                           Span<const Point<float>> positions,
                                           const AffineTransform& transform)
@@ -1125,7 +1183,17 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     const auto fontScale = font.getHorizontalScale();
     const auto textTransform = AffineTransform::scale (fontScale, 1.0f).followedBy (transform);
     const auto worldTransform = currentState->currentTransform.getTransform();
-    const auto textAndWorldTransform = textTransform.followedBy (worldTransform);
+    // Acon Digital modification - see JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+    auto textAndWorldTransform = textTransform.followedBy (worldTransform);
+
+   #if JUCE_DIRECT2D_SNAP_TEXT_BASELINE
+    if (exactlyEqual (textAndWorldTransform.mat01, 0.0f) && exactlyEqual (textAndWorldTransform.mat10, 0.0f))
+    {
+        const auto baseline = positions.front().transformedBy (textAndWorldTransform).y;
+        textAndWorldTransform = textAndWorldTransform.translated (0.0f, std::round (baseline) - baseline);
+    }
+   #endif
+    // Acon Digital modification - End of modification
     const auto onlyTranslated = textAndWorldTransform.isOnlyTranslation();
 
     const auto fillTransform = onlyTranslated
@@ -1145,6 +1213,11 @@ void Direct2DGraphicsContext::drawGlyphs (Span<const uint16_t> glyphNumbers,
     };
 
     applyPendingClipList();
+
+    // Acon Digital modification - see getTextRenderingParams()
+    if (auto* params = getTextRenderingParams (getPimpl()->getDirectWriteFactory4().get()))
+        deviceContext->SetTextRenderingParams (params);
+    // Acon Digital modification - End of modification
 
     D2D1_POINT_2F baselineOrigin { 0.0f, 0.0f };
 
