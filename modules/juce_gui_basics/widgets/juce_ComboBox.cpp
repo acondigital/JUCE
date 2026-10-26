@@ -615,15 +615,15 @@ void ComboBox::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& whe
 {
     if (! menuActive && scrollWheelEnabled && e.eventComponent == this && ! approximatelyEqual (wheel.deltaY, 0.0f))
     {
-        mouseWheelAccumulator += wheel.deltaY * 5.0f;
+        mouseWheelAccumulator += wheel.isSmooth ? wheel.deltaY * 5.0f : (wheel.deltaY > 0.0f ? 1.0f : -1.0f);
 
-        while (mouseWheelAccumulator > 1.0f)
+        while (mouseWheelAccumulator >= 1.0f)
         {
             mouseWheelAccumulator -= 1.0f;
             nudgeSelectedItem (-1);
         }
 
-        while (mouseWheelAccumulator < -1.0f)
+        while (mouseWheelAccumulator <= -1.0f)
         {
             mouseWheelAccumulator += 1.0f;
             nudgeSelectedItem (1);
