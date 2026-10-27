@@ -581,6 +581,16 @@ public:
         */
         [[nodiscard]] Options forSubmenu() const;
 
+        // Acon Digital modification - tells the look and feel which decorations the menu's items have, as
+        // it only sees one item at a time when it measures and draws a row
+        /** Returns a copy of these options saying whether any item of the menu has an icon, a tick or a
+            submenu. Each menu window sets this for its own items.
+
+            @see hasItemWithIcon, hasItemWithTick, hasItemWithSubMenu
+        */
+        [[nodiscard]] Options withItemDecorations (bool anyItemHasIcon, bool anyItemIsTicked, bool anyItemHasSubMenu) const;
+        // Acon Digital modification - End of modification
+
         //==============================================================================
         /** Gets the parent component. This may be nullptr if the Component has been deleted.
 
@@ -656,12 +666,26 @@ public:
         */
         int getInitiallySelectedItemId() const noexcept              { return initiallySelectedItemId; }
 
+        // Acon Digital modification - see withItemDecorations()
+        /** True if any item of the menu has an icon. @see withItemDecorations */
+        bool hasItemWithIcon() const noexcept                        { return itemHasIcon; }
+
+        /** True if any item of the menu is ticked. @see withItemDecorations */
+        bool hasItemWithTick() const noexcept                        { return itemIsTicked; }
+
+        /** True if any item of the menu opens a submenu. @see withItemDecorations */
+        bool hasItemWithSubMenu() const noexcept                     { return itemHasSubMenu; }
+        // Acon Digital modification - End of modification
+
     private:
         //==============================================================================
         Rectangle<int> targetArea;
         WeakReference<Component> targetComponent, parentComponent, componentToWatchForDeletion, topLevelTarget;
         int visibleItemID = 0, minWidth = 0, minColumns = 1, maxColumns = 0, standardHeight = 0, initiallySelectedItemId = 0;
         bool isWatchingForDeletion = false;
+        // Acon Digital modification - see withItemDecorations()
+        bool itemHasIcon = false, itemIsTicked = false, itemHasSubMenu = false;
+        // Acon Digital modification - End of modification
         PopupDirection preferredPopupDirection = PopupDirection::downwards;
     };
 
