@@ -600,6 +600,25 @@ void AudioDeviceManager::insertDefaultDeviceNames (AudioDeviceSetup& setup) cons
 
     if (auto* type = getCurrentDeviceTypeObject())
     {
+        // One device carries both directions, so there is no pair to choose. Probing would also open
+        // a second instance of a driver that may already be running, which some ASIO drivers do not
+        // survive - the Axia driver corrupts its heap when the probe instance stops.
+        if (! type->hasSeparateInputsAndOutputs())
+        {
+            auto name = setup.outputDeviceName.isNotEmpty() ? setup.outputDeviceName : setup.inputDeviceName;
+
+            if (name.isEmpty())
+                name = type->getDeviceNames (false)[type->getDefaultDeviceIndex (false)];
+
+            if (setup.outputDeviceName.isEmpty() && numOutputChansNeeded > 0)
+                setup.outputDeviceName = name;
+
+            if (setup.inputDeviceName.isEmpty() && numInputChansNeeded > 0)
+                setup.inputDeviceName = name;
+
+            return;
+        }
+
         // We avoid selecting a device pair that doesn't share a matching sample rate, if possible.
         // If not, other parts of the AudioDeviceManager and AudioIODevice classes should generate
         // an appropriate error message when opening or starting these devices.

@@ -977,9 +977,13 @@ public:
              && (normRange.end > normRange.start)
              && (style != IncDecButtons || incDecDragged))
         {
+            // restoreMouseIfHidden moves valueOnMouseDown to the value the drag ended on, for a
+            // rotary slider, so the change has to be judged against the value it started from
+            const auto valueWhenDragStarted = valueOnMouseDown;
+
             restoreMouseIfHidden();
 
-            if (sendChangeOnlyOnRelease && ! approximatelyEqual (valueOnMouseDown, static_cast<double> (currentValue.getValue())))
+            if (sendChangeOnlyOnRelease && ! approximatelyEqual (valueWhenDragStarted, static_cast<double> (currentValue.getValue())))
                 triggerChangeMessage (sendNotificationAsync);
 
             currentDrag.reset();

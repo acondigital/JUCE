@@ -169,8 +169,10 @@ void NSViewComponent::resizeToFitView()
 
         // The frame is unscaled, and componentMovedOrResized() multiplies the desktop scale back in.
         // Without dividing it out here, the two enlarge each other endlessly at any scale but 1.0.
+        // Round, as getAreaCoveredBy() does on the way back: truncating loses a pixel at fractional
+        // scales, and the plug-in snapping its view back to size turns that into a resize loop.
         const auto scale = getTopLevelComponent()->getDesktopScaleFactor();
-        setBounds (Rectangle<int> ((int) (r.size.width / scale), (int) (r.size.height / scale)));
+        setBounds (Rectangle<int> (roundToInt (r.size.width / scale), roundToInt (r.size.height / scale)));
 
         if (auto* peer = getTopLevelComponent()->getPeer())
         {
