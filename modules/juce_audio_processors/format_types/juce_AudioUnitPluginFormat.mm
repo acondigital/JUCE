@@ -85,6 +85,7 @@ public:
 
     void embedViewController (JUCE_IOS_MAC_VIEW* pluginView, [[maybe_unused]] const CGSize& size)
     {
+        detachFromWindowEdges (pluginView);
         wrapper.setView (pluginView);
         waitingForViewCallback = false;
 
@@ -195,12 +196,25 @@ private:
         }
        #endif
 
+        detachFromWindowEdges (pluginView);
         wrapper.setView (pluginView);
 
         if (pluginView != nil)
             wrapper.resizeToFitView();
 
         return pluginView != nil;
+    }
+
+    // The editor is fitted to the plug-in's view, and the wrapper sets the view's frame itself.
+    // A sizable autoresizing mask - Apple's AUGraphicEQ has one - would also tie the view to every
+    // window edge: when the view is set smaller than the plug-in's constraints allow, AppKit widens
+    // the window, the wrapper writes the old frame back, and the two repeat within one display
+    // cycle until macOS 27 raises an exception.
+    static void detachFromWindowEdges ([[maybe_unused]] JUCE_IOS_MAC_VIEW* view)
+    {
+       #if JUCE_MAC
+        [view setAutoresizingMask: NSViewNotSizable];
+       #endif
     }
 
     void requestViewControllerCallback (AUViewControllerBase* controller)
