@@ -49,6 +49,11 @@ struct JUCE_API AAXClientExtensions
 {
     virtual ~AAXClientExtensions() = default;
 
+    /** Optional page-table semantic information (native AAX selector/result values).
+        Return false for parameters or selectors that the plug-in does not describe. */
+    virtual bool getParameterValueInfo (int /*parameterIndex*/, int /*selector*/, int32& /*value*/) const { return false; }
+
+
     /** AAX plug-ins need to report a unique "plug-in id" for every audio layout
         configuration that your AudioProcessor supports on the main bus. Override this
         function if you want your AudioProcessor to use a custom "plug-in id" (for example

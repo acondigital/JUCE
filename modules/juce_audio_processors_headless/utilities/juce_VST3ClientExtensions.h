@@ -60,6 +60,17 @@ struct VST3ClientExtensions
 {
     virtual ~VST3ClientExtensions() = default;
 
+    /** Optional host-facing gain-reduction meter. Define JUCE_VST3_ENABLE_GAIN_REDUCTION=1
+        on the VST3 wrapper target to advertise the native interfaces, including before connection.
+        The ID must identify an exported parameter.
+        Decibels are non-positive, with zero for bypass. Existing parameter conversions are untouched. */
+    virtual String getGainReductionParameterID() const { return {}; }
+    virtual std::optional<float> getGainReductionInDecibels() const { return std::nullopt; }
+
+    /** Optional physical conversions for explicitly opted-in read-only display meters only. */
+    virtual std::optional<float> getMeterValueInDecibels (int, float) const { return std::nullopt; }
+    virtual std::optional<float> getMeterValueFromDecibels (int, float) const { return std::nullopt; }
+
     /** This function may be used by implementations of queryInterface()
         in the VST3's implementation of IEditController to return
         additional supported interfaces.

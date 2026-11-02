@@ -116,6 +116,16 @@ JUCE_BEGIN_NO_SANITIZE ("vptr")
  #include <juce_core/native/juce_CFHelpers_mac.h>
 #endif
 
+#ifndef JUCE_VST3_ENABLE_GAIN_REDUCTION
+ #define JUCE_VST3_ENABLE_GAIN_REDUCTION 0
+#endif
+
+#if JUCE_VST3_ENABLE_GAIN_REDUCTION
+ #include <pluginterfaces/vst/ivstparameterfunctionname.h>
+ #include <juce_audio_processors_headless/format_types/pslextensions/ipslgainreduction.h>
+ namespace Presonus { DEF_CLASS_IID (IGainReductionInfo) }
+#endif
+
 namespace juce
 {
 
@@ -835,6 +845,10 @@ static void setValueAndNotifyIfChanged (AudioProcessorParameter& param, float ne
 
 //==============================================================================
 class JuceVST3EditController final : public Vst::EditController,
+                                    #if JUCE_VST3_ENABLE_GAIN_REDUCTION
+                                     public Vst::IParameterFunctionName,
+                                     public Presonus::IGainReductionInfo,
+                                    #endif
                                      public Vst::IMidiMapping,
                                      public Vst::IUnitInfo,
                                      public Vst::IRemapParamID,
@@ -897,6 +911,44 @@ public:
 
         return EditController::terminate();
     }
+
+   #if JUCE_VST3_ENABLE_GAIN_REDUCTION
+    AudioProcessorParameter* gainReductionParameter() const
+    {
+        auto* instance = getPluginInstance();
+        auto* ext = instance != nullptr ? instance->getVST3ClientExtensions() : nullptr;
+        const auto id = ext != nullptr ? ext->getGainReductionParameterID() : String();
+        return id.isNotEmpty() && audioProcessor != nullptr ? audioProcessor->getParameter (id) : nullptr;
+    }
+
+    Vst::ParamValue PLUGIN_API getParamNormalized (Vst::ParamID id) override
+    {
+        if (auto* meter = gainReductionParameter())
+            if (audioProcessor->getParamForVSTParamID (id) == meter)
+                return 1.0 - Decibels::decibelsToGain (getGainReductionValueInDb());
+        return EditController::getParamNormalized (id);
+    }
+
+    tresult PLUGIN_API getParameterIDFromFunctionName (Vst::UnitID unit, FIDString name, Vst::ParamID& id) override
+    {
+        id = Vst::kNoParamId;
+        if (unit == Vst::kRootUnitId && name != nullptr && std::strcmp (name, Vst::FunctionNameType::kCompGainReduction) == 0)
+            if (auto* meter = gainReductionParameter()) {
+                id = audioProcessor->getVSTParamIDForIndex (meter->getParameterIndex());
+                return kResultOk;
+            }
+        return kResultFalse;
+    }
+
+    double PLUGIN_API getGainReductionValueInDb() override
+    {
+        if (auto* instance = getPluginInstance())
+            if (auto* ext = instance->getVST3ClientExtensions())
+                if (const auto db = ext->getGainReductionInDecibels())
+                    return std::isfinite (*db) ? jlimit (-120.0, 0.0, (double) *db) : 0.0;
+        return 0.0;
+    }
+   #endif
 
     //==============================================================================
     struct Param final : public Vst::Parameter
@@ -1007,8 +1059,22 @@ public:
             return juce::String (juce::CharPointer_UTF16 (reinterpret_cast<const juce::CharPointer_UTF16::CharType*> (text)));
         }
 
-        Vst::ParamValue toPlain (Vst::ParamValue v) const override       { return v; }
-        Vst::ParamValue toNormalized (Vst::ParamValue v) const override  { return v; }
+        Vst::ParamValue toPlain (Vst::ParamValue v) const override
+        {
+            if (auto* instance = owner.getPluginInstance())
+                if (auto* ext = instance->getVST3ClientExtensions())
+                    if (auto value = ext->getMeterValueInDecibels (param.getParameterIndex(), (float) v))
+                        return *value;
+            return v;
+        }
+        Vst::ParamValue toNormalized (Vst::ParamValue v) const override
+        {
+            if (auto* instance = owner.getPluginInstance())
+                if (auto* ext = instance->getVST3ClientExtensions())
+                    if (auto value = ext->getMeterValueFromDecibels (param.getParameterIndex(), (float) v))
+                        return *value;
+            return v;
+        }
 
     private:
         JuceVST3EditController& owner;
@@ -1686,6 +1752,10 @@ private:
                                              UniqueBase<FObject>{},
                                              UniqueBase<JuceVST3EditController>{},
                                              UniqueBase<Vst::IEditController>{},
+                                            #if JUCE_VST3_ENABLE_GAIN_REDUCTION
+                                             UniqueBase<Vst::IParameterFunctionName>{},
+                                             UniqueBase<Presonus::IGainReductionInfo>{},
+                                            #endif
                                              UniqueBase<Vst::IEditController2>{},
                                              UniqueBase<Vst::IConnectionPoint>{},
                                              UniqueBase<Vst::IMidiMapping>{},
