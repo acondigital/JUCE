@@ -116,6 +116,7 @@ JUCE_BEGIN_NO_SANITIZE ("vptr")
  #include <juce_core/native/juce_CFHelpers_mac.h>
 #endif
 
+// Acon Digital modification - MMS-13: opt-in native gain-reduction interfaces.
 #ifndef JUCE_VST3_ENABLE_GAIN_REDUCTION
  #define JUCE_VST3_ENABLE_GAIN_REDUCTION 0
 #endif
@@ -125,6 +126,7 @@ JUCE_BEGIN_NO_SANITIZE ("vptr")
  #include <juce_audio_processors_headless/format_types/pslextensions/ipslgainreduction.h>
  namespace Presonus { DEF_CLASS_IID (IGainReductionInfo) }
 #endif
+// Acon Digital modification - End of modification
 
 namespace juce
 {
@@ -845,10 +847,12 @@ static void setValueAndNotifyIfChanged (AudioProcessorParameter& param, float ne
 
 //==============================================================================
 class JuceVST3EditController final : public Vst::EditController,
+                                    // Acon Digital modification - MMS-13: implement gain-reduction controller interfaces.
                                     #if JUCE_VST3_ENABLE_GAIN_REDUCTION
                                      public Vst::IParameterFunctionName,
                                      public Presonus::IGainReductionInfo,
                                     #endif
+                                    // Acon Digital modification - End of modification
                                      public Vst::IMidiMapping,
                                      public Vst::IUnitInfo,
                                      public Vst::IRemapParamID,
@@ -912,6 +916,7 @@ public:
         return EditController::terminate();
     }
 
+    // Acon Digital modification - MMS-13: expose gain reduction before processor connection and poll it in dB.
    #if JUCE_VST3_ENABLE_GAIN_REDUCTION
     AudioProcessorParameter* gainReductionParameter() const
     {
@@ -949,6 +954,7 @@ public:
         return 0.0;
     }
    #endif
+    // Acon Digital modification - End of modification
 
     //==============================================================================
     struct Param final : public Vst::Parameter
@@ -1059,6 +1065,7 @@ public:
             return juce::String (juce::CharPointer_UTF16 (reinterpret_cast<const juce::CharPointer_UTF16::CharType*> (text)));
         }
 
+        // Acon Digital modification - MMS-13: physical dB conversions for opted-in display meters.
         Vst::ParamValue toPlain (Vst::ParamValue v) const override
         {
             if (auto* instance = owner.getPluginInstance())
@@ -1075,6 +1082,7 @@ public:
                         return *value;
             return v;
         }
+        // Acon Digital modification - End of modification
 
     private:
         JuceVST3EditController& owner;
@@ -1752,10 +1760,12 @@ private:
                                              UniqueBase<FObject>{},
                                              UniqueBase<JuceVST3EditController>{},
                                              UniqueBase<Vst::IEditController>{},
+                                            // Acon Digital modification - MMS-13: advertise gain-reduction interfaces from controller creation.
                                             #if JUCE_VST3_ENABLE_GAIN_REDUCTION
                                              UniqueBase<Vst::IParameterFunctionName>{},
                                              UniqueBase<Presonus::IGainReductionInfo>{},
                                             #endif
+                                            // Acon Digital modification - End of modification
                                              UniqueBase<Vst::IEditController2>{},
                                              UniqueBase<Vst::IConnectionPoint>{},
                                              UniqueBase<Vst::IMidiMapping>{},

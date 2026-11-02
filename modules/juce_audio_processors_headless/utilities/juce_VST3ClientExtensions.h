@@ -60,6 +60,7 @@ struct VST3ClientExtensions
 {
     virtual ~VST3ClientExtensions() = default;
 
+    // Acon Digital modification - MMS-13: optional gain-reduction and display-meter hooks.
     /** Optional host-facing gain-reduction meter. Define JUCE_VST3_ENABLE_GAIN_REDUCTION=1
         on the VST3 wrapper target to advertise the native interfaces, including before connection.
         The ID must identify an exported parameter.
@@ -70,6 +71,7 @@ struct VST3ClientExtensions
     /** Optional physical conversions for explicitly opted-in read-only display meters only. */
     virtual std::optional<float> getMeterValueInDecibels (int, float) const { return std::nullopt; }
     virtual std::optional<float> getMeterValueFromDecibels (int, float) const { return std::nullopt; }
+    // Acon Digital modification - End of modification
 
     /** This function may be used by implementations of queryInterface()
         in the VST3's implementation of IEditController to return

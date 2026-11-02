@@ -49,9 +49,11 @@ struct JUCE_API AAXClientExtensions
 {
     virtual ~AAXClientExtensions() = default;
 
+    // Acon Digital modification - MMS-13: optional AAX control-surface semantics hook.
     /** Optional page-table semantic information (native AAX selector/result values).
         Return false for parameters or selectors that the plug-in does not describe. */
     virtual bool getParameterValueInfo (int /*parameterIndex*/, int /*selector*/, int32& /*value*/) const { return false; }
+    // Acon Digital modification - End of modification
 
 
     /** AAX plug-ins need to report a unique "plug-in id" for every audio layout

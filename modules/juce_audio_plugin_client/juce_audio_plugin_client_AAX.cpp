@@ -2125,6 +2125,7 @@ namespace AAXClasses
         }
 
         //==============================================================================
+        // Acon Digital modification - MMS-13: forward optional control-surface semantics.
         AAX_Result GetParameterValueInfo (AAX_CParamID parameterID, int32_t selector, int32_t* value) const override
         {
             if (value == nullptr) return AAX_ERROR_NULL_ARGUMENT;
@@ -2133,6 +2134,7 @@ namespace AAXClasses
                     return AAX_SUCCESS;
             return AAX_ERROR_UNIMPLEMENTED;
         }
+        // Acon Digital modification - End of modification
 
         AAX_Result GetCurveData (AAX_CTypeID iCurveType, const float * iValues, uint32_t iNumValues, float * oValues ) const override
         {
