@@ -429,6 +429,18 @@ struct MouseWheelDetails  final
     /** If true, then this event is part of the inertial momentum phase that follows
         the wheel being released. */
     bool isInertial;
+
+    // Acon Digital modification - touch pad gestures
+    /** If true, then this event belongs to a scroll made with two or more fingers on a
+        touch pad, including the momentum phase after the fingers have lifted. Only
+        reported on macOS, by a peer with indirect touch events enabled.
+        @see ComponentPeer::setIndirectTouchEventsEnabled
+    */
+    bool isTouchpadGesture = false;
+
+    /** If true, then this event is the first of a scroll gesture. Only reported on macOS. */
+    bool isGestureStart = false;
+    // Acon Digital modification - End of modification
 };
 
 //==============================================================================

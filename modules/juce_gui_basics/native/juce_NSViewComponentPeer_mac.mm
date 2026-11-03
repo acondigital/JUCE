@@ -946,11 +946,83 @@ public:
             wheel.deltaY = scale * (float) [ev deltaY];
         }
 
+        // Acon Digital modification - touch pad gestures
+        // The finger count is only right when the gesture begins: the momentum events that
+        // follow arrive after the fingers have lifted. So it is latched there, and held until
+        // an event without either phase - a notched wheel - or the next gesture. A Magic Mouse
+        // reports no indirect touches, so its scrolls never count as touch pad gestures.
+        const auto phase = [ev phase];
+
+        if ((phase & (NSEventPhaseMayBegin | NSEventPhaseBegan)) != 0)
+        {
+            isTouchpadScroll = numIndirectTouches >= 2;
+            wheel.isGestureStart = true;
+        }
+        else if (phase == NSEventPhaseNone && [ev momentumPhase] == NSEventPhaseNone)
+        {
+            isTouchpadScroll = false;
+        }
+
+        wheel.isTouchpadGesture = isTouchpadScroll;
+        // Acon Digital modification - End of modification
+
         handleMouseWheel (MouseInputSource::InputSourceType::mouse, getMousePos (ev, view), getMouseTime (ev), wheel);
     }
 
+    // Acon Digital modification - touch pad gestures
+    void setIndirectTouchEventsEnabled (bool shouldBeEnabled) override
+    {
+        indirectTouchEventsEnabled = shouldBeEnabled;
+
+        auto types = [view allowedTouchTypes];
+        [view setAllowedTouchTypes: shouldBeEnabled ? (types | NSTouchTypeMaskIndirect)
+                                                    : (types & ~NSTouchTypeMaskIndirect)];
+    }
+
+    std::optional<MagnifyGestureDetails> getCurrentMagnifyGesture() const override
+    {
+        if (! indirectTouchEventsEnabled)
+            return {};
+
+        return currentMagnifyGesture;
+    }
+
+    void redirectTouches (NSEvent* ev)
+    {
+        NSSet<NSTouch*>* touching = [ev touchesMatchingPhase: NSTouchPhaseTouching inView: nil];
+
+        numIndirectTouches = 0;
+        indirectTouchSpan = {};
+        std::optional<Point<float>> first;
+
+        for (NSTouch* touch in touching)
+        {
+            if ([touch type] != NSTouchTypeIndirect)
+                continue;
+
+            ++numIndirectTouches;
+
+            const auto size = [touch deviceSize];
+            const auto position = [touch normalizedPosition];
+            const Point<float> point { (float) (position.x * size.width), (float) (position.y * size.height) };
+
+            if (! first.has_value())
+                first = point;
+            else if (numIndirectTouches == 2)
+                indirectTouchSpan = { std::abs (point.x - first->x), std::abs (point.y - first->y) };
+        }
+    }
+    // Acon Digital modification - End of modification
+
     void redirectMagnify (NSEvent* ev)
     {
+        // Acon Digital modification - touch pad gestures
+        currentMagnifyGesture.isStart = ([ev phase] & NSEventPhaseBegan) != 0;
+
+        if (currentMagnifyGesture.isStart)
+            currentMagnifyGesture.fingerSpan = indirectTouchSpan;
+        // Acon Digital modification - End of modification
+
         const float invScale = 1.0f - (float) [ev magnification];
 
         if (invScale > 0.0f)
@@ -1874,6 +1946,13 @@ public:
 
     std::optional<KeyEventAttributes> lastSeenKeyEvent;
 
+    // Acon Digital modification - touch pad gestures
+    bool indirectTouchEventsEnabled = false, isTouchpadScroll = false;
+    int numIndirectTouches = 0;
+    Point<float> indirectTouchSpan;
+    MagnifyGestureDetails currentMagnifyGesture;
+    // Acon Digital modification - End of modification
+
     static inline ComponentPeer* currentlyFocusedPeer;
     static inline std::set<int> keysCurrentlyDown;
     static inline int insideToFrontCall;
@@ -2312,6 +2391,13 @@ struct JuceNSViewClass final : public NSViewComponentPeerWrapper<ObjCClass<NSVie
         addMethod (@selector (mouseExited:),                    [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectMouseExit,    ev); });
         addMethod (@selector (scrollWheel:),                    [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectMouseWheel,   ev); });
         addMethod (@selector (magnifyWithEvent:),               [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectMagnify,      ev); });
+
+        // Acon Digital modification - touch pad gestures
+        addMethod (@selector (touchesBeganWithEvent:),          [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectTouches,      ev); });
+        addMethod (@selector (touchesMovedWithEvent:),          [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectTouches,      ev); });
+        addMethod (@selector (touchesEndedWithEvent:),          [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectTouches,      ev); });
+        addMethod (@selector (touchesCancelledWithEvent:),      [] (id self, SEL, NSEvent* ev)       { callOnOwner (self, &NSViewComponentPeer::redirectTouches,      ev); });
+        // Acon Digital modification - End of modification
 
         addMethod (@selector (mouseDragged:),                   mouseDragged);
         addMethod (@selector (rightMouseDragged:),              mouseDragged);

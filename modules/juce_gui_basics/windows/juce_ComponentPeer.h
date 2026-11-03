@@ -582,6 +582,30 @@ public:
     */
     virtual std::optional<double> getCustomPlatformScaleFactor() const { return {}; }
 
+    // Acon Digital modification - touch pad gestures
+    /** On macOS, makes this peer track the fingers on a touch pad, so that it can report
+        MouseWheelDetails::isTouchpadGesture and getCurrentMagnifyGesture(). Off by default.
+    */
+    virtual void setIndirectTouchEventsEnabled (bool) {}
+
+    /** Describes the touch pad pinch that a magnify gesture belongs to. */
+    struct MagnifyGestureDetails
+    {
+        /** True for the first event of the pinch. */
+        bool isStart = false;
+
+        /** The horizontal and vertical distance between the two fingers on the touch pad
+            when the pinch began, in points. Zero if the fingers were not tracked. */
+        Point<float> fingerSpan;
+    };
+
+    /** While a magnify gesture is being delivered, describes the pinch it belongs to.
+        Returns nullopt where the platform does not report it, or when indirect touch
+        events are not enabled.
+    */
+    virtual std::optional<MagnifyGestureDetails> getCurrentMagnifyGesture() const { return {}; }
+    // Acon Digital modification - End of modification
+
     /** On platforms that support it, this will update the window's titlebar in some
         way to indicate that the window's document needs saving.
     */
