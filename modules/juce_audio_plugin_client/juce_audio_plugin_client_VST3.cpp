@@ -116,7 +116,7 @@ JUCE_BEGIN_NO_SANITIZE ("vptr")
  #include <juce_core/native/juce_CFHelpers_mac.h>
 #endif
 
-// Acon Digital modification - MMS-13: opt-in native gain-reduction interfaces.
+// Acon Digital modification: the gain reduction for the host's own meter - see VST3ClientExtensions.
 #ifndef JUCE_VST3_ENABLE_GAIN_REDUCTION
  #define JUCE_VST3_ENABLE_GAIN_REDUCTION 0
 #endif
@@ -847,7 +847,7 @@ static void setValueAndNotifyIfChanged (AudioProcessorParameter& param, float ne
 
 //==============================================================================
 class JuceVST3EditController final : public Vst::EditController,
-                                    // Acon Digital modification - MMS-13: implement gain-reduction controller interfaces.
+                                    // Acon Digital modification
                                     #if JUCE_VST3_ENABLE_GAIN_REDUCTION
                                      public Vst::IParameterFunctionName,
                                      public Presonus::IGainReductionInfo,
@@ -916,41 +916,54 @@ public:
         return EditController::terminate();
     }
 
-    // Acon Digital modification - MMS-13: expose gain reduction before processor connection and poll it in dB.
+    // Acon Digital modification
+    VST3ClientExtensions* getClientExtensions() const
+    {
+        auto* instance = getPluginInstance();
+        return instance != nullptr ? instance->getVST3ClientExtensions() : nullptr;
+    }
+
    #if JUCE_VST3_ENABLE_GAIN_REDUCTION
     AudioProcessorParameter* gainReductionParameter() const
     {
-        auto* instance = getPluginInstance();
-        auto* ext = instance != nullptr ? instance->getVST3ClientExtensions() : nullptr;
-        const auto id = ext != nullptr ? ext->getGainReductionParameterID() : String();
-        return id.isNotEmpty() && audioProcessor != nullptr ? audioProcessor->getParameter (id) : nullptr;
+        auto* extensions = getClientExtensions();
+        const auto id = extensions != nullptr ? extensions->getGainReductionParameterID() : String();
+        return id.isNotEmpty() ? audioProcessor->getParameter (id) : nullptr;
     }
 
+    // Read from the meter rather than from the last value processed, which a host that stops
+    // processing would leave standing
     Vst::ParamValue PLUGIN_API getParamNormalized (Vst::ParamID id) override
     {
         if (auto* meter = gainReductionParameter())
             if (audioProcessor->getParamForVSTParamID (id) == meter)
                 return 1.0 - Decibels::decibelsToGain (getGainReductionValueInDb());
+
         return EditController::getParamNormalized (id);
     }
 
     tresult PLUGIN_API getParameterIDFromFunctionName (Vst::UnitID unit, FIDString name, Vst::ParamID& id) override
     {
         id = Vst::kNoParamId;
+
         if (unit == Vst::kRootUnitId && name != nullptr && std::strcmp (name, Vst::FunctionNameType::kCompGainReduction) == 0)
-            if (auto* meter = gainReductionParameter()) {
+        {
+            if (auto* meter = gainReductionParameter())
+            {
                 id = audioProcessor->getVSTParamIDForIndex (meter->getParameterIndex());
                 return kResultOk;
             }
+        }
+
         return kResultFalse;
     }
 
     double PLUGIN_API getGainReductionValueInDb() override
     {
-        if (auto* instance = getPluginInstance())
-            if (auto* ext = instance->getVST3ClientExtensions())
-                if (const auto db = ext->getGainReductionInDecibels())
-                    return std::isfinite (*db) ? jlimit (-120.0, 0.0, (double) *db) : 0.0;
+        if (auto* extensions = getClientExtensions())
+            if (const auto decibels = extensions->getGainReductionInDecibels())
+                return std::isfinite (*decibels) ? jlimit (-120.0, 0.0, (double) *decibels) : 0.0;
+
         return 0.0;
     }
    #endif
@@ -1065,21 +1078,22 @@ public:
             return juce::String (juce::CharPointer_UTF16 (reinterpret_cast<const juce::CharPointer_UTF16::CharType*> (text)));
         }
 
-        // Acon Digital modification - MMS-13: physical dB conversions for opted-in display meters.
+        // Acon Digital modification
         Vst::ParamValue toPlain (Vst::ParamValue v) const override
         {
-            if (auto* instance = owner.getPluginInstance())
-                if (auto* ext = instance->getVST3ClientExtensions())
-                    if (auto value = ext->getMeterValueInDecibels (param.getParameterIndex(), (float) v))
-                        return *value;
+            if (auto* extensions = owner.getClientExtensions())
+                if (const auto decibels = extensions->getMeterValueInDecibels (param.getParameterIndex(), (float) v))
+                    return *decibels;
+
             return v;
         }
+
         Vst::ParamValue toNormalized (Vst::ParamValue v) const override
         {
-            if (auto* instance = owner.getPluginInstance())
-                if (auto* ext = instance->getVST3ClientExtensions())
-                    if (auto value = ext->getMeterValueFromDecibels (param.getParameterIndex(), (float) v))
-                        return *value;
+            if (auto* extensions = owner.getClientExtensions())
+                if (const auto value = extensions->getMeterValueFromDecibels (param.getParameterIndex(), (float) v))
+                    return *value;
+
             return v;
         }
         // Acon Digital modification - End of modification
@@ -1760,7 +1774,7 @@ private:
                                              UniqueBase<FObject>{},
                                              UniqueBase<JuceVST3EditController>{},
                                              UniqueBase<Vst::IEditController>{},
-                                            // Acon Digital modification - MMS-13: advertise gain-reduction interfaces from controller creation.
+                                            // Acon Digital modification
                                             #if JUCE_VST3_ENABLE_GAIN_REDUCTION
                                              UniqueBase<Vst::IParameterFunctionName>{},
                                              UniqueBase<Presonus::IGainReductionInfo>{},

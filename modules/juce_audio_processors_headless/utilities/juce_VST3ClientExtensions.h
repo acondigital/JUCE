@@ -60,17 +60,18 @@ struct VST3ClientExtensions
 {
     virtual ~VST3ClientExtensions() = default;
 
-    // Acon Digital modification - MMS-13: optional gain-reduction and display-meter hooks.
-    /** Optional host-facing gain-reduction meter. Define JUCE_VST3_ENABLE_GAIN_REDUCTION=1
-        on the VST3 wrapper target to advertise the native interfaces, including before connection.
-        The ID must identify an exported parameter.
-        Decibels are non-positive, with zero for bypass. Existing parameter conversions are untouched. */
+    // Acon Digital modification
+    /** The gain reduction the host shows in its own meter, through Vst::IParameterFunctionName and
+        Presonus::IGainReductionInfo. They exist only when the VST3 target defines
+        JUCE_VST3_ENABLE_GAIN_REDUCTION=1. The ID names a read-only parameter, and the
+        reduction in decibels is zero or negative. */
     virtual String getGainReductionParameterID() const { return {}; }
     virtual std::optional<float> getGainReductionInDecibels() const { return std::nullopt; }
 
-    /** Optional physical conversions for explicitly opted-in read-only display meters only. */
-    virtual std::optional<float> getMeterValueInDecibels (int, float) const { return std::nullopt; }
-    virtual std::optional<float> getMeterValueFromDecibels (int, float) const { return std::nullopt; }
+    /** The plain value of a read-only meter in decibels, which is how a VST3 host reads it.
+        std::nullopt for any other parameter, which keeps its plain value. */
+    virtual std::optional<float> getMeterValueInDecibels (int /*parameterIndex*/, float /*value*/) const { return std::nullopt; }
+    virtual std::optional<float> getMeterValueFromDecibels (int /*parameterIndex*/, float /*decibels*/) const { return std::nullopt; }
     // Acon Digital modification - End of modification
 
     /** This function may be used by implementations of queryInterface()

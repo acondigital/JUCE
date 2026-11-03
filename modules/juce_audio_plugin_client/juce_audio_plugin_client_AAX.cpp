@@ -2125,10 +2125,12 @@ namespace AAXClasses
         }
 
         //==============================================================================
-        // Acon Digital modification - MMS-13: forward optional control-surface semantics.
+        // Acon Digital modification: what a control surface shows of a parameter, such as an EQ band's type.
         AAX_Result GetParameterValueInfo (AAX_CParamID parameterID, int32_t selector, int32_t* value) const override
         {
-            if (value == nullptr) return AAX_ERROR_NULL_ARGUMENT;
+            if (value == nullptr)
+                return AAX_ERROR_NULL_ARGUMENT;
+
             if (auto* parameter = getParameterFromID (parameterID))
                 if (getPluginInstance().getAAXClientExtensions().getParameterValueInfo (parameter->getParameterIndex(), selector, *value))
                     return AAX_SUCCESS;
