@@ -662,6 +662,11 @@ std::vector<GlyphLayer> Typeface::getLayersForGlyph (int glyphNumber, const Affi
         if (auto layer = native->getFallbackColourGlyphLayers (glyphNumber, combinedTransform); ! layer.empty())
             return layer;
 
+    // Acon Digital modification - see getHintedLayersForGlyph()
+    if (auto layers = getHintedLayersForGlyph (glyphNumber, transform))
+        return *layers;
+    // Acon Digital modification - End of modification
+
     // No colour info available for this glyph, so just get a simple monochromatic outline
     auto path = TypefaceUtils::getGlyphPathInGlyphUnits ((hb_codepoint_t) glyphNumber, font);
 
