@@ -49,6 +49,12 @@ struct JUCE_API AAXClientExtensions
 {
     virtual ~AAXClientExtensions() = default;
 
+    // Acon Digital modification
+    /** Answers AAX_IEffectParameters::GetParameterValueInfo, with the AAX selector and values.
+        Returns false for a parameter or selector the plug-in does not describe. */
+    virtual bool getParameterValueInfo (int /*parameterIndex*/, int /*selector*/, int32& /*value*/) const { return false; }
+    // Acon Digital modification - End of modification
+
     /** AAX plug-ins need to report a unique "plug-in id" for every audio layout
         configuration that your AudioProcessor supports on the main bus. Override this
         function if you want your AudioProcessor to use a custom "plug-in id" (for example

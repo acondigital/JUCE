@@ -2125,6 +2125,19 @@ namespace AAXClasses
         }
 
         //==============================================================================
+        // Acon Digital modification: what a control surface shows of a parameter, such as an EQ band's type.
+        AAX_Result GetParameterValueInfo (AAX_CParamID parameterID, int32_t selector, int32_t* value) const override
+        {
+            if (value == nullptr)
+                return AAX_ERROR_NULL_ARGUMENT;
+
+            if (auto* parameter = getParameterFromID (parameterID))
+                if (getPluginInstance().getAAXClientExtensions().getParameterValueInfo (parameter->getParameterIndex(), selector, *value))
+                    return AAX_SUCCESS;
+            return AAX_ERROR_UNIMPLEMENTED;
+        }
+        // Acon Digital modification - End of modification
+
         AAX_Result GetCurveData (AAX_CTypeID iCurveType, const float * iValues, uint32_t iNumValues, float * oValues ) const override
         {
             auto curveType = aaxCurveTypeToJUCE (iCurveType);
