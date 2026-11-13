@@ -112,22 +112,36 @@ static bool readFromDirect2DBitmap (ComSmartPtr<ID2D1DeviceContext1> context,
         return false;
     }
 
+    // Creating, copying into and mapping the readable bitmap all fail when the device has been removed
+    // or is out of memory, and the caller treats false as content that could not be read back.
     const auto readableBitmap = Direct2DBitmap::createBitmap (context,
                                                               target->pixelFormat,
                                                               size,
                                                               D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW);
 
+    if (readableBitmap == nullptr)
+        return false;
+
     const auto dstPoint = D2D1::Point2U();
     const auto srcRect = D2DUtilities::toRECT_U (D2DUtilities::rectFromSize (size));
-    readableBitmap->CopyFromBitmap (&dstPoint, bitmap, &srcRect);
 
-    // This is only used to construct a read-only BitmapData backed by a texture for conversion to a
-    // software image
+    if (FAILED (readableBitmap->CopyFromBitmap (&dstPoint, bitmap, &srcRect)))
+        return false;
+
+    D2D1_MAPPED_RECT mapped{};
+
+    if (FAILED (readableBitmap->Map (D2D1_MAP_OPTIONS_READ, &mapped)) || mapped.bits == nullptr)
+        return false;
+
+    const ScopeGuard unmapOnExit { [&] { readableBitmap->Unmap(); } };
+
+    // This is only used to construct a read-only BitmapData over the mapped texture, for conversion
+    // to a software image
     struct TexturePixelData : public ImagePixelData
     {
-        TexturePixelData (ComSmartPtr<ID2D1Bitmap1> bitmapIn, Image::PixelFormat format, int w, int h)
+        TexturePixelData (D2D1_MAPPED_RECT mappedIn, Image::PixelFormat format, int w, int h)
             : ImagePixelData (format, w, h),
-              bitmap (bitmapIn)
+              mapped (mappedIn)
         {
         }
 
@@ -167,35 +181,28 @@ static bool readFromDirect2DBitmap (ComSmartPtr<ID2D1DeviceContext1> context,
                 return;
             }
 
-            struct Releaser : public Image::BitmapData::BitmapDataReleaser
-            {
-                explicit Releaser (ComSmartPtr<ID2D1Bitmap1> toUnmapIn) : toUnmap (toUnmapIn) {}
-                ~Releaser() override { toUnmap->Unmap(); }
-                ComSmartPtr<ID2D1Bitmap1> toUnmap;
-            };
-
-            D2D1_MAPPED_RECT mapped{};
-            bitmap->Map (D2D1_MAP_OPTIONS_READ, &mapped);
-            const auto dataEnd = mapped.bits + bitmap->GetPixelSize().height * mapped.pitch;
+            const auto dataEnd = mapped.bits + (size_t) height * mapped.pitch;
 
             bd.pixelFormat = pixelFormat;
             bd.pixelStride = pixelFormat == Image::SingleChannel ? 1 : 4;
             bd.lineStride = (int) mapped.pitch;
             bd.data = mapped.bits + x * bd.pixelStride + y * (int) mapped.pitch;
             bd.size = (size_t) (dataEnd - bd.data);
-            bd.dataReleaser = std::make_unique<Releaser> (bitmap);
         }
 
-        ComSmartPtr<ID2D1Bitmap1> bitmap;
+        D2D1_MAPPED_RECT mapped;
     };
 
-    Image srcImage { new TexturePixelData { readableBitmap,
-                                            target->pixelFormat,
-                                            (int) size.width,
-                                            (int) size.height } };
+    {
+        // Scoped, so the source image is gone before the bitmap it reads is unmapped
+        Image srcImage { new TexturePixelData { mapped,
+                                                target->pixelFormat,
+                                                (int) size.width,
+                                                (int) size.height } };
 
-    Image::BitmapData dstData { Image { target }, Image::BitmapData::writeOnly };
-    dstData.convertFrom ({ srcImage, Image::BitmapData::readOnly });
+        Image::BitmapData dstData { Image { target }, Image::BitmapData::writeOnly };
+        dstData.convertFrom ({ srcImage, Image::BitmapData::readOnly });
+    }
 
     return true;
 }
