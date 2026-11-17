@@ -2784,8 +2784,13 @@ void Component::internalBroughtToFront()
 
     // When brought to the front and there's a modal component blocking this one,
     // we need to bring the modal one to the front instead.
+    // Acon Digital modification - a window the modal component lets through, through
+    // canModalEventBeSentToComponent(), may come to the front without the modal window taking
+    // activation back from it, which would swallow its clicks. Such as the Save As options window
+    // opened from our Linux file dialog.
     if (auto* cm = getCurrentlyModalComponent())
-        if (cm->getTopLevelComponent() != getTopLevelComponent())
+        if (cm->getTopLevelComponent() != getTopLevelComponent()
+             && ! cm->canModalEventBeSentToComponent (this))
             ModalComponentManager::getInstance()->bringModalComponentsToFront (false); // very important that this is false, otherwise in Windows,
                                                                                        // non-front components can't get focus when another modal comp is
                                                                                        // active, and therefore can't receive mouse-clicks
