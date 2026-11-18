@@ -178,9 +178,12 @@ public:
     {
         if (! isError())
         {
-            DWORD index = 0, result = 0, size = sizeof (result);
+            // FLAG_NUMBER64, because a 32-bit DWORD cannot hold the length of a file over 4 GB.
+            DWORD index = 0;
+            ULONGLONG result = 0;
+            DWORD size = sizeof (result);
 
-            if (HttpQueryInfo (request, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER, &result, &size, &index))
+            if (HttpQueryInfo (request, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER64, &result, &size, &index))
                 return (int64) result;
         }
 
