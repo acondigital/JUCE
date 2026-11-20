@@ -666,7 +666,10 @@ bool Button::keyStateChangedCallback()
 
 bool Button::keyPressed (const KeyPress& key)
 {
-    if (isEnabled() && key.isKeyCode (KeyPress::returnKey))
+    // Acon Digital modification - Space presses the button too, but only when it was focused with
+    // the Tab key. After a mouse click Space stays free for the host's transport.
+    if (isEnabled() && (key.isKeyCode (KeyPress::returnKey)
+                         || (key == KeyPress (KeyPress::spaceKey) && lastFocusChangeCause == focusChangedByTabKey)))
     {
         triggerClick();
         return true;
