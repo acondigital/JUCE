@@ -38,6 +38,15 @@ namespace juce
 static Cursor createDraggingHandCursor();
 ComponentPeer* getPeerFor (::Window);
 
+// Set JUCE_LOG_XDND to trace incoming drops on stderr, to see where one goes missing.
+static void logXdnd (const String& message)
+{
+    static const bool enabled = std::getenv ("JUCE_LOG_XDND") != nullptr;
+
+    if (enabled)
+        Logger::writeToLog ("XDND: " + message);
+}
+
 //==============================================================================
 class X11DragState
 {
@@ -189,8 +198,9 @@ public:
         {
             dragInfo.position = dropPos;
 
+            // XdndPosition carries its timestamp in l[3]; l[2] is the pointer position.
             if (dragInfo.isEmpty())
-                updateDraggedFileList (clientMsg, (::Window) peer->getNativeHandle());
+                updateDraggedFileList ((::Time) clientMsg.data.l[3], (::Window) peer->getNativeHandle());
 
             if (! dragInfo.isEmpty())
                 peer->handleDragMove (dragInfo);
@@ -199,11 +209,13 @@ public:
 
     void handleDragAndDropDrop (const XClientMessageEvent& clientMsg, ComponentPeer* peer)
     {
+        logXdnd ("drop, data " + String (dragInfo.isEmpty() ? "not yet received" : "already received"));
+
         if (dragInfo.isEmpty())
         {
             // no data, transaction finished in handleDragAndDropSelection()
             finishAfterDropDataReceived = true;
-            updateDraggedFileList (clientMsg, (::Window) peer->getNativeHandle());
+            updateDraggedFileList ((::Time) clientMsg.data.l[2], (::Window) peer->getNativeHandle());
         }
         else
         {
@@ -223,6 +235,7 @@ public:
         // XWayland bridge always sends version 5 regardless of the XdndAware version we advertise.
         if (dndCurrentVersion < 3)
         {
+            logXdnd ("enter refused, source speaks version " + String (dndCurrentVersion));
             dragAndDropSourceWindow = 0;
             return;
         }
@@ -268,15 +281,29 @@ public:
 
             if (srcMimeTypeAtomList.isEmpty())
             {
+                logXdnd ("enter refused, source offers no types");
                 dragAndDropSourceWindow = 0;
                 return;
             }
         }
 
-        for (int i = 0; i < srcMimeTypeAtomList.size() && dragAndDropCurrentMimeType == 0; ++i)
-            for (int j = 0; j < numElementsInArray (atoms.allowedMimeTypes); ++j)
-                if (srcMimeTypeAtomList[i] == atoms.allowedMimeTypes[j])
-                    dragAndDropCurrentMimeType = atoms.allowedMimeTypes[j];
+        // Take the source's first type we know, but files over text whatever their order: GTK file
+        // managers offer the URIs as text too, and a text drop never reaches a FileDragAndDropTarget.
+        StringArray offeredTypes;
+
+        for (auto type : srcMimeTypeAtomList)
+        {
+            offeredTypes.add (XWindowSystemUtilities::Atoms::getName (getDisplay(), type));
+
+            if (std::find (std::begin (atoms.allowedMimeTypes), std::end (atoms.allowedMimeTypes), type) == std::end (atoms.allowedMimeTypes))
+                continue;
+
+            if (dragAndDropCurrentMimeType == 0 || XWindowSystemUtilities::Atoms::isMimeTypeFile (getDisplay(), type))
+                dragAndDropCurrentMimeType = type;
+        }
+
+        logXdnd ("enter, version " + String (dndCurrentVersion) + ", offered [" + offeredTypes.joinIntoString (", ") + "], taking "
+                 + (dragAndDropCurrentMimeType != 0 ? XWindowSystemUtilities::Atoms::getName (getDisplay(), dragAndDropCurrentMimeType) : String ("none")));
 
         handleDragAndDropPosition (clientMsg, peer);
     }
@@ -338,6 +365,16 @@ public:
                 dragInfo.text = lines.joinIntoString ("\n");
             }
 
+            logXdnd ("received " + String (dragInfo.files.size()) + " files, " + String (dragInfo.text.length()) + " characters of text");
+
+            if (finishAfterDropDataReceived)
+                handleDragAndDropDataReceived();
+        }
+        else
+        {
+            logXdnd ("the source refused the conversion");
+
+            // Still tell the source the drop is over, rather than leave it waiting.
             if (finishAfterDropDataReceived)
                 handleDragAndDropDataReceived();
         }
@@ -511,7 +548,7 @@ private:
         sendDragAndDropMessage (msg);
     }
 
-    void updateDraggedFileList (const XClientMessageEvent& clientMsg, ::Window requestor)
+    void updateDraggedFileList (::Time time, ::Window requestor)
     {
         jassert (dragInfo.isEmpty());
 
@@ -522,7 +559,11 @@ private:
             XWindowSystemUtilities::ScopedXLock xLock;
             X11Symbols::getInstance()->xConvertSelection (display, getAtoms().XdndSelection, dragAndDropCurrentMimeType,
                                                           XWindowSystemUtilities::Atoms::getCreating (display, "JXSelectionWindowProperty"),
-                                                          requestor, (::Time) clientMsg.data.l[2]);
+                                                          requestor, time);
+        }
+        else
+        {
+            logXdnd ("no data requested, " + String (dragAndDropSourceWindow == None ? "no source window" : "no type we can read"));
         }
     }
 
@@ -584,8 +625,13 @@ private:
         resetDragAndDrop();
 
         if (! dragInfoCopy.isEmpty())
+        {
             if (auto* peer = getPeerFor (windowH))
-                peer->handleDragDrop (dragInfoCopy);
+                logXdnd ("drop " + String (peer->handleDragDrop (dragInfoCopy) ? "taken" : "not taken") + " by a component at "
+                         + dragInfoCopy.position.toString());
+            else
+                logXdnd ("drop lost, no window to deliver it to");
+        }
     }
 
     void resetDragAndDrop()
