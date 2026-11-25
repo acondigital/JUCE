@@ -666,10 +666,11 @@ bool Button::keyStateChangedCallback()
 
 bool Button::keyPressed (const KeyPress& key)
 {
-    // Acon Digital modification - Space presses the button too, but only when it was focused with
-    // the Tab key. After a mouse click Space stays free for the host's transport.
-    if (isEnabled() && (key.isKeyCode (KeyPress::returnKey)
-                         || (key == KeyPress (KeyPress::spaceKey) && lastFocusChangeCause == focusChangedByTabKey)))
+    // Acon Digital modification - Return and Space press the button only when it was focused with
+    // the Tab key. After a mouse click both stay free for the host's transport; JUCE reports the
+    // keypad's Enter as Return on every platform.
+    if (isEnabled() && lastFocusChangeCause == focusChangedByTabKey
+         && (key.isKeyCode (KeyPress::returnKey) || key == KeyPress (KeyPress::spaceKey)))
     {
         triggerClick();
         return true;
